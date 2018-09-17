@@ -1354,6 +1354,40 @@ namespace pxt.blocks {
         };
 
         /**
+         * Show the context menu for this block.
+         * @param {!Event} e Mouse event.
+         * @private
+         */
+        (<any>Blockly).BlockSvg.prototype.showContextMenu_ = function(e: MouseEvent) {
+            if (this.workspace.options.readOnly || !this.contextMenu) {
+                return;
+            }
+            // Save the current block in a variable for use in closures.
+            let block = this;
+            let menuOptions = [];
+
+            if (this.isDeletable() && this.isMovable() && !block.isInFlyout) {
+                menuOptions.push((Blockly.ContextMenu as any).blockDuplicateOption(block));
+                if (this.isEditable() && this.workspace.options.comments) {
+                    menuOptions.push((Blockly.ContextMenu as any).blockCommentOption(block));
+                }
+                menuOptions.push((Blockly.ContextMenu as any).blockDeleteOption(block));
+            } else if (this.parentBlock_ && this.isShadow_) {
+                this.parentBlock_.showContextMenu_(e);
+                return;
+            }
+
+            menuOptions.push((Blockly.ContextMenu as any).blockHelpOption(block));
+
+            // Allow the block to add or modify menuOptions.
+            if (this.customContextMenu) {
+                this.customContextMenu(menuOptions);
+            }
+            Blockly.ContextMenu.show(e, menuOptions, this.RTL);
+            (Blockly.ContextMenu as any).currentBlock = this;
+        };
+
+        /**
          * Show the context menu for the workspace.
          * @param {!Event} e Mouse event.
          * @private
