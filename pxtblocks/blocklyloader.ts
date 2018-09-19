@@ -936,7 +936,7 @@ namespace pxt.blocks {
      * Used by pxtrunner to initialize blocks in the docs
      */
     export function initializeAndInject(blockInfo: pxtc.BlocksInfo) {
-        init();
+        init(blockInfo);
         injectBlocks(blockInfo);
     }
 
@@ -945,13 +945,13 @@ namespace pxt.blocks {
      * Blocks are injected separately by called injectBlocks
      */
     export function initialize(blockInfo: pxtc.BlocksInfo) {
-        init();
+        init(blockInfo);
         initTooltip(blockInfo);
         initJresIcons(blockInfo);
     }
 
     let blocklyInitialized = false;
-    function init() {
+    function init(blockInfo: pxtc.BlocksInfo) {
         if (blocklyInitialized) return;
         blocklyInitialized = true;
 
@@ -962,7 +962,7 @@ namespace pxt.blocks {
         Blockly.BlockSvg.START_HAT = !!pxt.appTarget.appTheme.blockHats;
 
         initFieldEditors();
-        initContextMenu();
+        initContextMenu(blockInfo);
         initOnStart();
         initMath();
         initVariables();
@@ -1330,7 +1330,7 @@ namespace pxt.blocks {
         }
     }
 
-    function initContextMenu() {
+    function initContextMenu(blockInfo: pxtc.BlocksInfo) {
         // Translate the context menu for blocks.
         let msg: any = Blockly.Msg;
         msg.DUPLICATE_BLOCK = lf("{id:block}Duplicate");
@@ -1353,36 +1353,64 @@ namespace pxt.blocks {
             if (url) (pxt.blocks.openHelpUrl || window.open)(url);
         };
 
+        let blockCodeArea = document.getElementById("blockCodeArea") as HTMLTextAreaElement;
+        if (blockCodeArea === null) {
+            blockCodeArea = document.createElement("textarea");
+            blockCodeArea.setAttribute("id", "blockCodeArea");
+            document.getElementById("mainmenu").appendChild(blockCodeArea);
+        }
+
         /**
          * Show the context menu for this block.
          * @param {!Event} e Mouse event.
          * @private
          */
         (<any>Blockly).BlockSvg.prototype.showContextMenu_ = function(e: MouseEvent) {
-            if (this.workspace.options.readOnly || !this.contextMenu) {
+            if (!this.contextMenu) {
                 return;
             }
-            // Save the current block in a variable for use in closures.
-            let block = this;
-            let menuOptions = [];
 
-            if (this.isDeletable() && this.isMovable() && !block.isInFlyout) {
-                menuOptions.push((Blockly.ContextMenu as any).blockDuplicateOption(block));
-                if (this.isEditable() && this.workspace.options.comments) {
-                    menuOptions.push((Blockly.ContextMenu as any).blockCommentOption(block));
+            const block = this;
+            let menuOptions: Blockly.ContextMenu.MenuItem[] = [
+                {
+                    text: "Copy",
+                    enabled: true,
+                    callback: async () => {
+                        try {
+                            const compilationResult = await pxt.blocks.compileBlockAsync(block, blockInfo);
+                            blockCodeArea.textContent = compilationResult.source;
+                            blockCodeArea.select();
+                            document.execCommand("cut");
+                        }
+                        catch (e) {
+                            alert(e.toString());
+                        }
+                    }
                 }
-                menuOptions.push((Blockly.ContextMenu as any).blockDeleteOption(block));
-            } else if (this.parentBlock_ && this.isShadow_) {
-                this.parentBlock_.showContextMenu_(e);
-                return;
-            }
+            ];
 
-            menuOptions.push((Blockly.ContextMenu as any).blockHelpOption(block));
+            if (!this.workspace.options.readOnly) {
+                // Save the current block in a variable for use in closures.
+
+                if (this.isDeletable() && this.isMovable() && !block.isInFlyout) {
+                    menuOptions.push((Blockly.ContextMenu as any).blockDuplicateOption(block));
+                    if (this.isEditable() && this.workspace.options.comments) {
+                        menuOptions.push((Blockly.ContextMenu as any).blockCommentOption(block));
+                    }
+                    menuOptions.push((Blockly.ContextMenu as any).blockDeleteOption(block));
+                } else if (this.parentBlock_ && this.isShadow_) {
+                    this.parentBlock_.showContextMenu_(e);
+                    return;
+                }
+
+                menuOptions.push((Blockly.ContextMenu as any).blockHelpOption(block));
+                if (this.customContextMenu) {
+                    this.customContextMenu(menuOptions);
+                }
+            }
 
             // Allow the block to add or modify menuOptions.
-            if (this.customContextMenu) {
-                this.customContextMenu(menuOptions);
-            }
+
             Blockly.ContextMenu.show(e, menuOptions, this.RTL);
             (Blockly.ContextMenu as any).currentBlock = this;
         };
