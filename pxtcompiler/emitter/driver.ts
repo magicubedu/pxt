@@ -212,7 +212,7 @@ namespace ts.pxtc {
         let file = resp.ast.getSourceFile(fileName);
         const apis = getApiInfo(opts, resp.ast);
         const blocksInfo = pxtc.getBlocksInfo(apis, bannedCategories);
-        const bresp = pxtc.decompiler.decompileToBlocks(blocksInfo, file, { snippetMode: false, alwaysEmitOnStart: opts.alwaysDecompileOnStart, includeGreyBlockMessages }, pxtc.decompiler.buildRenameMap(resp.ast, file))
+        const bresp = pxtc.decompiler.decompileToBlocks(blocksInfo, file, { snippetMode: opts.snippetMode, alwaysEmitOnStart: opts.alwaysDecompileOnStart, includeGreyBlockMessages }, pxtc.decompiler.buildRenameMap(resp.ast, file))
         return bresp;
     }
 

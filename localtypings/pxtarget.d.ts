@@ -386,6 +386,7 @@ declare namespace ts.pxtc {
         name?: string;
         warnDiv?: boolean; // warn when emitting division operator
 
+        snippetMode?: boolean; // decompiler only
         alwaysDecompileOnStart?: boolean; // decompiler only
 
         embedMeta?: string;
