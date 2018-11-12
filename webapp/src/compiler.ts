@@ -162,6 +162,7 @@ export function decompileSnippetAsync(code: string, blockInfo?: ts.pxtc.BlocksIn
             }
 
             opts.ast = true;
+            opts.snippetMode = true;
             return decompileCoreAsync(opts, snippetTs)
         }).then(resp => {
             return resp.outfiles[snippetBlocks]
