@@ -1403,7 +1403,6 @@ namespace pxt.blocks {
                     return;
                 }
 
-                menuOptions.push((Blockly.ContextMenu as any).blockHelpOption(block));
                 if (this.customContextMenu) {
                     this.customContextMenu(menuOptions);
                 }
