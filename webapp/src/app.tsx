@@ -3205,16 +3205,5 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }, false);
 
-    pxt.blocks.onShowContextMenu = (workspace, items) => {
-        items.push({
-            text: lf("Import"),
-            enabled: true,
-            callback: async () => {
-                if (pxt.blocks.blockPasteHandler === undefined) {
-                    return;
-                }
-                Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(await compiler.decompileSnippetAsync(pxt.blocks.blockPasteHandler().ts)), workspace);
-            }
-        });
-    };
+    pxt.blocks.decompileSnippetAsync = compiler.decompileSnippetAsync;
 })

@@ -1279,9 +1279,11 @@ namespace pxt.blocks {
         blocks?: string;
     }
     // tslint:disable-next-line:no-var-keyword
-    export var blockCopyHandler: (content: BlockContent) => void = blockCopyHandler !== undefined ? blockCopyHandler : c => {};
+    export var blockCopyHandler: (content: BlockContent) => void = blockCopyHandler !== undefined ? blockCopyHandler : undefined;
     // tslint:disable-next-line:no-var-keyword
     export var blockPasteHandler: () => BlockContent = blockPasteHandler !== undefined ? blockPasteHandler : undefined;
+    // tslint:disable-next-line:no-var-keyword
+    export var decompileSnippetAsync: (code: string, blockInfo?: pxtc.BlocksInfo) => Promise<string> = decompileSnippetAsync !== undefined ? decompileSnippetAsync : undefined;
 
     /**
      * The following patch to blockly is to add the Trash icon on top of the toolbox,
@@ -1378,15 +1380,17 @@ namespace pxt.blocks {
             }
 
             const block = this;
-            let menuOptions: Blockly.ContextMenu.MenuItem[] = [
-                {
+            let menuOptions: Blockly.ContextMenu.MenuItem[] = [];
+
+            if (blockCopyHandler !== undefined) {
+                menuOptions.push({
                     text: lf("Export"),
                     enabled: true,
                     callback: async () => {
                         blockCopyHandler({ts: (await compileBlockAsync(block, blockInfo)).source});
                     }
-                }
-            ];
+                });
+            }
 
             if (!this.workspace.options.readOnly) {
                 // Save the current block in a variable for use in closures.
@@ -1554,6 +1558,16 @@ namespace pxt.blocks {
                     }
                 };
                 menuOptions.push(screenshotOption);
+            }
+
+            if (blockPasteHandler !== undefined && decompileSnippetAsync !== undefined) {
+                menuOptions.push({
+                    text: lf("Import"),
+                    enabled: true,
+                    callback: async () => {
+                        Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(await decompileSnippetAsync((await blockPasteHandler()).ts)), this);
+                    }
+                });
             }
 
             // custom options...
