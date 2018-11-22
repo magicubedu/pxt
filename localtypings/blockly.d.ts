@@ -976,6 +976,7 @@ declare namespace Blockly {
 
 
     namespace Xml {
+        function blockToDom(block: Blockly.Block, opt_noId?: boolean): Element;
         function domToText(dom: Element): string;
         function domToPrettyText(dom: Element): string;
         function domToWorkspace(dom: Element, workspace: Workspace): string[];
