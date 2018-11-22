@@ -3207,7 +3207,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     pxt.blocks.onShowContextMenu = (workspace, items) => {
         items.push({
-            text: "Paste",
+            text: lf("Import"),
             enabled: true,
             callback: async () => {
                 if (pxt.blocks.blockPasteHandler === undefined) {

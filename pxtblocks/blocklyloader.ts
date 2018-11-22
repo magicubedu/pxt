@@ -961,6 +961,10 @@ namespace pxt.blocks {
         Blockly.FieldCheckbox.CHECK_CHAR = '■';
         Blockly.BlockSvg.START_HAT = !!pxt.appTarget.appTheme.blockHats;
 
+        const localizedString = Util.getLocalizedStrings();
+        localizedString["Export"] = "匯出";
+        Util.setLocalizedStrings(localizedString);
+
         initFieldEditors();
         initContextMenu(blockInfo);
         initOnStart();
@@ -1376,7 +1380,7 @@ namespace pxt.blocks {
             const block = this;
             let menuOptions: Blockly.ContextMenu.MenuItem[] = [
                 {
-                    text: "Copy",
+                    text: lf("Export"),
                     enabled: true,
                     callback: async () => {
                         blockCopyHandler({ts: (await compileBlockAsync(block, blockInfo)).source});
