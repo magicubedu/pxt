@@ -1266,8 +1266,18 @@ namespace pxt.blocks {
         };
     }
 
-    export let onShowContextMenu: (workspace: Blockly.Workspace,
-        items: Blockly.ContextMenu.MenuItem[]) => void = undefined;
+    // tslint:disable-next-line:no-var-keyword
+    export var onShowContextMenu: (workspace: Blockly.Workspace,
+        items: Blockly.ContextMenu.MenuItem[]) => void = onShowContextMenu !== undefined ? onShowContextMenu : undefined;
+
+    export interface BlockContent {
+        ts?: string;
+        blocks?: string;
+    }
+    // tslint:disable-next-line:no-var-keyword
+    export var blockCopyHandler: (content: BlockContent) => void = blockCopyHandler !== undefined ? blockCopyHandler : c => {};
+    // tslint:disable-next-line:no-var-keyword
+    export var blockPasteHandler: () => BlockContent = blockPasteHandler !== undefined ? blockPasteHandler : undefined;
 
     /**
      * The following patch to blockly is to add the Trash icon on top of the toolbox,
@@ -1353,13 +1363,6 @@ namespace pxt.blocks {
             if (url) (pxt.blocks.openHelpUrl || window.open)(url);
         };
 
-        let blockCodeArea = document.getElementById("blockCodeArea") as HTMLTextAreaElement;
-        if (blockCodeArea === null) {
-            blockCodeArea = document.createElement("textarea");
-            blockCodeArea.setAttribute("id", "blockCodeArea");
-            document.getElementById("mainmenu").appendChild(blockCodeArea);
-        }
-
         /**
          * Show the context menu for this block.
          * @param {!Event} e Mouse event.
@@ -1376,15 +1379,7 @@ namespace pxt.blocks {
                     text: "Copy",
                     enabled: true,
                     callback: async () => {
-                        try {
-                            const compilationResult = await pxt.blocks.compileBlockAsync(block, blockInfo);
-                            blockCodeArea.textContent = compilationResult.source;
-                            blockCodeArea.select();
-                            document.execCommand("cut");
-                        }
-                        catch (e) {
-                            alert(e.toString());
-                        }
+                        blockCopyHandler({ts: (await compileBlockAsync(block, blockInfo)).source});
                     }
                 }
             ];

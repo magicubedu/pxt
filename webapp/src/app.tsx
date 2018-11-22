@@ -3174,20 +3174,6 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        if (m.type === "ready" && pxt.blocks.onShowContextMenu === undefined) {
-            pxt.blocks.onShowContextMenu = (workspace: Blockly.Workspace, items: Blockly.ContextMenu.MenuItem[]) => {
-                items.push({
-                    text: "Paste",
-                    enabled: true,
-                    callback: async () => {
-                        const ts = document.getElementById("blockCodeArea").textContent;
-                        const r = await compiler.decompileSnippetAsync(ts);
-                        Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(r), workspace);
-                    }
-                });
-            };
-        }
-
         if (ev.data.__proxy == "parent") {
             pxt.debug("received parent proxy message" + ev.data);
             delete ev.data.__proxy;
@@ -3218,4 +3204,17 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
     }, false);
+
+    pxt.blocks.onShowContextMenu = (workspace, items) => {
+        items.push({
+            text: "Paste",
+            enabled: true,
+            callback: async () => {
+                if (pxt.blocks.blockPasteHandler === undefined) {
+                    return;
+                }
+                Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(await compiler.decompileSnippetAsync(pxt.blocks.blockPasteHandler().ts)), workspace);
+            }
+        });
+    };
 })
