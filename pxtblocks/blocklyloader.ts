@@ -1387,7 +1387,12 @@ namespace pxt.blocks {
                     text: lf("Export"),
                     enabled: true,
                     callback: async () => {
-                        blockCopyHandler({ts: (await compileBlockAsync(block, blockInfo)).source});
+                        const xmlRoot = document.createElementNS("http://www.w3.org/1999/xhtml", "xml");
+                        xmlRoot.appendChild(Blockly.Xml.blockToDom(block, true));
+                        blockCopyHandler({
+                            blocks: Blockly.Xml.domToText(xmlRoot),
+                            ts: (await compileBlockAsync(block, blockInfo)).source
+                        });
                     }
                 });
             }
@@ -1566,11 +1571,22 @@ namespace pxt.blocks {
                     enabled: true,
                     callback: () => {
                         blockPasteHandler(async (content) => {
-                            const decompileResult = await decompileSnippetAsync(content.ts);
-                            if (decompileResult === undefined) {
+                            const validateBlocklyElement = (e: Element | null) => e !== null && e.localName === "xml";
+                            let blocklyElement: Element = null;
+                            if (content.blocks !== undefined) {
+                                blocklyElement = Blockly.Xml.textToDom(content.blocks);
+                            }
+                            if (content.ts !== undefined && validateBlocklyElement(blocklyElement) === false) {
+                                const decompileResult = await decompileSnippetAsync(content.ts);
+                                if (decompileResult === undefined) {
+                                    throw new Error("PARSE_ERROR");
+                                }
+                                blocklyElement = Blockly.Xml.textToDom(decompileResult);
+                            }
+                            if (validateBlocklyElement(blocklyElement) === false) {
                                 throw new Error("PARSE_ERROR");
                             }
-                            Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(decompileResult), this);
+                            Blockly.Xml.domToWorkspace(blocklyElement, this);
                             return Promise.resolve();
                         });
                     }
