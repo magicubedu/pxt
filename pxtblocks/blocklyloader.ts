@@ -1281,7 +1281,7 @@ namespace pxt.blocks {
     // tslint:disable-next-line:no-var-keyword
     export var blockCopyHandler: (content: BlockContent) => void = blockCopyHandler !== undefined ? blockCopyHandler : undefined;
     // tslint:disable-next-line:no-var-keyword
-    export var blockPasteHandler: () => BlockContent = blockPasteHandler !== undefined ? blockPasteHandler : undefined;
+    export var blockPasteHandler: (pasteToMakeCode: ((content: BlockContent) => Promise<void>)) => void = blockPasteHandler !== undefined ? blockPasteHandler : undefined;
     // tslint:disable-next-line:no-var-keyword
     export var decompileSnippetAsync: (code: string, blockInfo?: pxtc.BlocksInfo) => Promise<string> = decompileSnippetAsync !== undefined ? decompileSnippetAsync : undefined;
 
@@ -1564,8 +1564,15 @@ namespace pxt.blocks {
                 menuOptions.push({
                     text: lf("Import"),
                     enabled: true,
-                    callback: async () => {
-                        Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(await decompileSnippetAsync((await blockPasteHandler()).ts)), this);
+                    callback: () => {
+                        blockPasteHandler(async (content) => {
+                            const decompileResult = await decompileSnippetAsync(content.ts);
+                            if (decompileResult === undefined) {
+                                throw new Error("PARSE_ERROR");
+                            }
+                            Blockly.Xml.domToWorkspace(Blockly.Xml.textToDom(decompileResult), this);
+                            return Promise.resolve();
+                        });
                     }
                 });
             }
