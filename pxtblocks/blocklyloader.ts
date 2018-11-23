@@ -1570,7 +1570,7 @@ namespace pxt.blocks {
                     text: lf("Import"),
                     enabled: true,
                     callback: () => {
-                        blockPasteHandler(async (content) => {
+                        blockPasteHandler(content => new Promise(async (resolve, reject) => {
                             const validateBlocklyElement = (e: Element | null) => e !== null && e.localName === "xml";
                             let blocklyElement: Element = null;
                             if (content.blocks !== undefined) {
@@ -1584,11 +1584,11 @@ namespace pxt.blocks {
                                 blocklyElement = Blockly.Xml.textToDom(decompileResult);
                             }
                             if (validateBlocklyElement(blocklyElement) === false) {
-                                throw new Error("PARSE_ERROR");
+                                throw new Error("INVALID_INPUT");
                             }
                             Blockly.Xml.domToWorkspace(blocklyElement, this);
-                            return Promise.resolve();
-                        });
+                            resolve();
+                        }));
                     }
                 });
             }
