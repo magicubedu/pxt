@@ -962,7 +962,9 @@ namespace pxt.blocks {
         Blockly.BlockSvg.START_HAT = !!pxt.appTarget.appTheme.blockHats;
 
         const localizedString = Util.getLocalizedStrings();
-        localizedString["Export"] = "匯出";
+        if (Util.startsWith(Util.userLanguage(), "zh")) {
+            localizedString["Export"] = "匯出";
+        }
         Util.setLocalizedStrings(localizedString);
 
         initFieldEditors();
