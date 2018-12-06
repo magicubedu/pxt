@@ -1390,7 +1390,13 @@ namespace pxt.blocks {
                     enabled: true,
                     callback: async () => {
                         const xmlRoot = document.createElementNS("http://www.w3.org/1999/xhtml", "xml");
-                        xmlRoot.appendChild(Blockly.Xml.blockToDom(block, true));
+                        const blocklyElements = Blockly.Xml.blockToDom(block, true);
+                        blocklyElements.querySelectorAll("*").forEach(element => {
+                            element.removeAttribute("deletable");
+                            element.removeAttribute("movable");
+                            element.removeAttribute("editable");
+                        });
+                        xmlRoot.appendChild(blocklyElements);
                         blockCopyHandler({
                             blocks: Blockly.Xml.domToText(xmlRoot),
                             ts: (await compileBlockAsync(block, blockInfo)).source
