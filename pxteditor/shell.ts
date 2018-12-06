@@ -47,7 +47,7 @@ namespace pxt.shell {
 
     export function isSandboxMode() {
         init();
-        return layoutType == EditorLayoutType.Sandbox;
+        return layoutType == EditorLayoutType.Controller || layoutType == EditorLayoutType.Sandbox;
     }
 
     export function isReadOnly() {
