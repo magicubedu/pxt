@@ -2,7 +2,7 @@ namespace pxt.Cloud {
     import Util = pxtc.Util;
 
     // hit /api/ to stay on same domain and avoid CORS
-    export let apiRoot = isLocalHost() || Util.isNodeJS ? "https://www.makecode.com/api/" : "/api/";
+    export let apiRoot = "https://www.makecode.com/api/";
     export let accessToken = "";
     export let localToken = "";
     let _isOnline = true;
