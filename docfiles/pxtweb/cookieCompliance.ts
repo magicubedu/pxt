@@ -76,7 +76,7 @@ namespace pxt {
             return;
         }
 
-        if (isSandboxMode()) {
+        if (isSandboxMode() || isControllerMode()) {
             initializeAppInsightsInternal(false);
             return;
         }
@@ -280,6 +280,10 @@ namespace pxt {
         //We don't want cookie notification in the share page
         const sandbox = /sandbox=1|#sandbox|#sandboxproject/i.test(window.location.href)
         return sandbox;
+    }
+
+    function isControllerMode(): boolean {
+        return /controller=1/i.test(window.location.href)
     }
 
     // No promises, so here we are
