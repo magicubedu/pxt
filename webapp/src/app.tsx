@@ -3013,9 +3013,6 @@ document.addEventListener("DOMContentLoaded", () => {
     pxt.docs.requireMarked = () => require("marked");
     const importHex = (hex: pxt.cpp.HexFile, createNewIfFailed = false) => theEditor.importHex(hex, createNewIfFailed);
 
-    const hm = /^(https:\/\/[^/]+)/.exec(window.location.href)
-    if (hm) Cloud.apiRoot = hm[1] + "/api/"
-
     const hw = /[&?]hw=([\w-]+)/.exec(window.location.href)
     if (hw)
         pxt.setHwVariant(hw[1])
