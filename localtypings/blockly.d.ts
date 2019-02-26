@@ -1519,45 +1519,6 @@ declare module Blockly.BlockAnimations {
      */
     function connectionUiStep_(ripple: Element, start: Date, scale: number): void;
 
-    class Field {
-        static NBSP: string;
-        name: string;
-        protected CURSOR: string;
-        EDITABLE: boolean;
-        box_: Element;
-        sourceBlock_: Block;
-        fieldGroup_: Element;
-        textElement_: Element;
-        arrowWidth_: number;
-        maxDisplayLength: number;
-        visible_: boolean;
-        text_: string;
-        size_: goog.math.Size;
-        init(block?: Block): void;
-        static superClass_: Field;
-        constructor(text: string, opt_validator?: Function);
-        callValidator<T>(text: T): T;
-        getText(): string;
-        setText(newText: any): void;
-        updateEditable(): void;
-        dispose(): void;
-        render_(): void;
-        showEditor_(e?: Event): void;
-        getAbsoluteXY_(): goog.math.Coordinate;
-        getScaledBBox_(): {top: number, bottom: number, left: number, right: number};
-        setValue(newValue: string | number): void;
-        getValue(): string;
-        isCurrentlyEditable(): boolean;
-        setSourceBlock(block: Block): void;
-        static getCachedWidth(textElement: Element): number;
-        addArgType(argType: string): void;
-        updateTextNode_(): void;
-        getSize(): goog.math.Size;
-        getSvgRoot(): Element;
-        classValidator(text: string): string;
-        forceRerender(): void;
-    }
-
     /**
      * Play some UI effects (sound, animation) when disconnecting a block.
      * @param {!Blockly.BlockSvg} block The block being disconnected.
@@ -2324,15 +2285,6 @@ declare module Blockly.BlockSvg {
      * @const
      */
     var NOTCH_PATH_RIGHT: any /*missing*/;
-
-    namespace Xml {
-        function blockToDom(block: Blockly.Block, opt_noId?: boolean): Element;
-        function domToText(dom: Element): string;
-        function domToPrettyText(dom: Element): string;
-        function domToWorkspace(dom: Element, workspace: Workspace): string[];
-        function textToDom(text: string): Element;
-        function workspaceToDom(workspace: Workspace, noid?: boolean): Element;
-    }
 
     /**
      * Amount of padding before the notch.
