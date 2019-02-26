@@ -1229,7 +1229,7 @@ namespace pxt.blocks {
          * @param {!Event} e Mouse event.
          * @private
          */
-        (<any>Blockly).BlockSvg.prototype.showContextMenu_ = function(e: MouseEvent) {
+        Blockly.BlockSvg.prototype.showContextMenu_ = function(e: MouseEvent) {
             if (!this.contextMenu) {
                 return;
             }
