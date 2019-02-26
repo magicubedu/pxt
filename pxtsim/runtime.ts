@@ -62,20 +62,83 @@ namespace pxsim {
             return Date.now();
         }
 
+        let perf: () => number
+
         // current time in microseconds
         export function perfNowUs(): number {
-            const perf = typeof performance != "undefined" ?
-                performance.now.bind(performance) ||
-                (performance as any).moznow.bind(performance) ||
-                (performance as any).msNow.bind(performance) ||
-                (performance as any).webkitNow.bind(performance) ||
-                (performance as any).oNow.bind(performance) :
-                Date.now;
+            if (!perf)
+                perf = typeof performance != "undefined" ?
+                    performance.now.bind(performance) ||
+                    (performance as any).moznow.bind(performance) ||
+                    (performance as any).msNow.bind(performance) ||
+                    (performance as any).webkitNow.bind(performance) ||
+                    (performance as any).oNow.bind(performance) :
+                    Date.now;
             return perf() * 1000;
         }
 
         export function nextTick(f: () => void) {
             (<any>Promise)._async._schedule(f)
+        }
+
+        // this will take lower 8 bits from each character
+        export function stringToUint8Array(input: string) {
+            let len = input.length;
+            let res = new Uint8Array(len)
+            for (let i = 0; i < len; ++i)
+                res[i] = input.charCodeAt(i) & 0xff;
+            return res;
+        }
+
+        export function uint8ArrayToString(input: ArrayLike<number>) {
+            let len = input.length;
+            let res = ""
+            for (let i = 0; i < len; ++i)
+                res += String.fromCharCode(input[i]);
+            return res;
+        }
+
+        export function fromUTF8(binstr: string) {
+            if (!binstr) return ""
+
+            // escape function is deprecated
+            let escaped = ""
+            for (let i = 0; i < binstr.length; ++i) {
+                let k = binstr.charCodeAt(i) & 0xff
+                if (k == 37 || k > 0x7f) {
+                    escaped += "%" + k.toString(16);
+                } else {
+                    escaped += binstr.charAt(i)
+                }
+            }
+
+            // decodeURIComponent does the actual UTF8 decoding
+            return decodeURIComponent(escaped)
+        }
+
+        export function toUTF8(str: string, cesu8?: boolean) {
+            let res = "";
+            if (!str) return res;
+            for (let i = 0; i < str.length; ++i) {
+                let code = str.charCodeAt(i);
+                if (code <= 0x7f) res += str.charAt(i);
+                else if (code <= 0x7ff) {
+                    res += String.fromCharCode(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+                } else {
+                    if (!cesu8 && 0xd800 <= code && code <= 0xdbff) {
+                        let next = str.charCodeAt(++i);
+                        if (!isNaN(next))
+                            code = 0x10000 + ((code - 0xd800) << 10) + (next - 0xdc00);
+                    }
+
+                    if (code <= 0xffff)
+                        res += String.fromCharCode(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+                    else
+                        res += String.fromCharCode(0xf0 | (code >> 18), 0x80 | ((code >> 12) & 0x3f), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+                }
+
+            }
+            return res;
         }
     }
 
@@ -116,20 +179,35 @@ namespace pxsim {
     export let runtime: Runtime;
     export function getResume() { return runtime.getResume() }
 
+    export type MessageListener = (msg: SimulatorMessage) => void;
+
     const SERIAL_BUFFER_LENGTH = 16;
     export class BaseBoard {
         public runOptions: SimulatorRunMessage;
+        public messageListeners: MessageListener[] = [];
 
         public updateView() { }
-        public receiveMessage(msg: SimulatorMessage) { }
+        public receiveMessage(msg: SimulatorMessage) {
+            this.dispatchMessage(msg);
+        }
+        private dispatchMessage(msg: SimulatorMessage) {
+            for (const listener of this.messageListeners)
+                listener(msg)
+        }
+        public addMessageListener(listener: MessageListener) {
+            this.messageListeners.push(listener);
+        }
+
         public initAsync(msg: SimulatorRunMessage): Promise<void> {
             this.runOptions = msg;
             return Promise.resolve()
         }
+        public screenshotAsync(): Promise<ImageData> {
+            return Promise.resolve(undefined);
+        }
         public kill() { }
 
         protected serialOutBuffer: string = '';
-
         private messages: SerialMessage[] = [];
         private serialTimeout: number;
         private lastSerialTime = 0;
@@ -199,7 +277,7 @@ namespace pxsim {
 
         kill() {
             super.kill();
-            AudioContextManager.stop();
+            AudioContextManager.stopAll();
         }
     }
 
@@ -230,12 +308,17 @@ namespace pxsim {
 
     export type EventValueToActionArgs<T> = (value: T) => any[];
 
+    enum LogType {
+        UserSet, BackAdd, BackRemove
+    }
+
     export class EventQueue<T> {
         max: number = 5;
         events: T[] = [];
         private awaiters: ((v?: any) => void)[] = [];
         private lock: boolean;
         private _handlers: RefAction[] = [];
+        private _addRemoveLog: { act: RefAction, log: LogType}[] = [];
 
         constructor(public runtime: Runtime, private valueToArgs?: EventValueToActionArgs<T>) { }
 
@@ -255,8 +338,8 @@ namespace pxsim {
 
             this.events.push(e)
 
-            // if this is the first event pushed - start processing
-            if (this.events.length == 1 && !this.lock)
+            // start processing, if not already processing
+            if (!this.lock)
                 return this.poke();
             else
                 return Promise.resolve()
@@ -264,47 +347,68 @@ namespace pxsim {
 
         private poke(): Promise<void> {
             this.lock = true;
-            let ret = Promise.each(this.events, (value) => {
+            let events = this.events;
+            // all events will be processed by concurrent promisified code below, so start afresh
+            this.events = []
+            // in order semantics for events and handlers
+            return Promise.each(events, (value) => {
                 return Promise.each(this.handlers, (handler) => {
                     return this.runtime.runFiberAsync(handler, ...(this.valueToArgs ? this.valueToArgs(value) : [value]))
                 })
             }).then(() => {
-                // if some events arrived while processing above
-                // then keep processing
+                // if some events arrived while processing above then keep processing
                 if (this.events.length > 0) {
                     return this.poke()
                 } else {
                     this.lock = false
+                    // process the log (synchronous)
+                    this._addRemoveLog.forEach(l => {
+                        if (l.log === LogType.BackAdd) { this.addHandler(l.act) }
+                        else if (l.log === LogType.BackRemove) { this.removeHandler(l.act) }
+                        else this.setHandler(l.act)
+                    });
+                    this._addRemoveLog = [];
                     return Promise.resolve()
                 }
             })
-            // all events will be processed by above code, so
-            // start afresh
-            this.events = []
-            return ret
         }
 
         get handlers() {
             return this._handlers;
         }
 
-        addHandler(a: RefAction) {
-            this._handlers.push(a);
-            pxtcore.incr(a)
-        }
-
         setHandler(a: RefAction) {
-            this._handlers.forEach(old => pxtcore.decr(old))
-            this._handlers = [a];
-            pxtcore.incr(a)
+            if (!this.lock) {
+                this._handlers.forEach(old => pxtcore.decr(old))
+                this._handlers = [a];
+                pxtcore.incr(a)
+            } else {
+                this._addRemoveLog.push({act: a, log: LogType.UserSet});
+            }
+    }
+
+        addHandler(a: RefAction) {
+            if (!this.lock) {
+                let index = this._handlers.indexOf(a)
+                // only add if new, just like CODAL
+                if (index == -1) {
+                    this._handlers.push(a);
+                    pxtcore.incr(a)
+                }
+            } else {
+                this._addRemoveLog.push({act: a, log: LogType.BackAdd});
+            }
         }
 
         removeHandler(a: RefAction) {
-            let index = this._handlers.indexOf(a)
-            while (index != -1) {
-                this._handlers.splice(index, 1)
-                pxtcore.decr(a)
-                index = this._handlers.indexOf(a)
+            if (!this.lock) {
+                let index = this._handlers.indexOf(a)
+                if (index != -1) {
+                    this._handlers.splice(index,1)
+                    pxtcore.decr(a)
+                }
+            } else {
+                this._addRemoveLog.push({act: a, log: LogType.BackRemove});
             }
         }
 
@@ -327,7 +431,7 @@ namespace pxsim {
 
     // wraps simulator code as STS code - useful for default event handlers
     export function syntheticRefAction(f: (s: StackFrame) => any) {
-        return pxtcore.mkAction(0, 0, s => _leave(s, f(s)))
+        return pxtcore.mkAction(0, s => _leave(s, f(s)))
     }
 
     export class Runtime {
@@ -339,6 +443,9 @@ namespace pxsim {
 
         dead = false;
         running = false;
+        recording = false;
+        recordingTimer = 0;
+        recordingLastImageData: ImageData = undefined;
         startTime = 0;
         startTimeUs = 0;
         id: string;
@@ -347,6 +454,11 @@ namespace pxsim {
         entry: LabelFn;
         loopLock: Object = null;
         loopLockWaitList: (() => void)[] = [];
+
+        perfCounters: PerfCounter[]
+        perfOffset = 0
+        perfElapsed = 0
+        perfStack = 0
 
         public refCountingDebug = false;
         public refCounting = true;
@@ -386,7 +498,7 @@ namespace pxsim {
                 U.nextTick(() => {
                     runtime = this;
                     this.setupTop(resolve)
-                    pxtcore.runAction3(a, arg0, arg1, arg2)
+                    pxtcore.runAction(a, [arg0, arg1, arg2])
                     decr(a) // if it's still running, action.run() has taken care of incrementing the counter
                 }))
         }
@@ -402,6 +514,31 @@ namespace pxsim {
             if (Runtime.messagePosted) Runtime.messagePosted(data);
         }
 
+        static postScreenshotAsync(delay?: number): Promise<void> {
+            const b = runtime && runtime.board;
+            const p = b
+                ? b.screenshotAsync().catch(e => {
+                    console.debug(`screenshot failed`);
+                    return undefined;
+                })
+                : Promise.resolve(undefined);
+            return p.then(img => Runtime.postMessage({
+                type: "screenshot",
+                data: img,
+                delay
+            } as SimulatorScreenshotMessage));
+        }
+
+        static requestToggleRecording() {
+            const r = runtime;
+            if (!r) return;
+
+            Runtime.postMessage(<SimulatorRecorderMessage>{
+                type: "recorder",
+                action: r.recording ? "stop" : "start"
+            })
+        }
+
         restart() {
             this.kill();
             setTimeout(() =>
@@ -415,11 +552,56 @@ namespace pxsim {
         kill() {
             this.dead = true
             // TODO fix this
+            this.stopRecording();
             this.setRunning(false);
         }
 
         updateDisplay() {
-            this.board.updateView()
+            this.board.updateView();
+            this.postFrame();
+        }
+
+        startRecording() {
+            if (this.recording || !this.running) return;
+
+            this.recording = true;
+            this.recordingTimer = setInterval(() => this.postFrame(), 66);
+            this.recordingLastImageData = undefined;
+        }
+
+        stopRecording() {
+            if (!this.recording) return;
+            if (this.recordingTimer) clearInterval(this.recordingTimer);
+            this.recording = false;
+            this.recordingTimer = 0;
+            this.recordingLastImageData = undefined;
+        }
+
+        postFrame() {
+            if (!this.recording || !this.running) return;
+            let time = pxsim.U.now();
+            this.board.screenshotAsync()
+                .then(imageData => {
+                    // check for ducs
+                    if (this.recordingLastImageData && imageData
+                        && this.recordingLastImageData.data.byteLength == imageData.data.byteLength) {
+                        const d0 = this.recordingLastImageData.data;
+                        const d1 = imageData.data;
+                        const n = d0.byteLength;
+                        let i = 0;
+                        for (i = 0; i < n; ++i)
+                            if (d0[i] != d1[i])
+                                break;
+                        if (i == n) // same, don't send update
+                            return;
+                    }
+                    this.recordingLastImageData = imageData;
+                    Runtime.postMessage(<SimulatorScreenshotMessage>{
+                        type: "screenshot",
+                        data: imageData,
+                        time
+                    })
+                });
         }
 
         private numDisplayUpdates = 0;
@@ -442,6 +624,7 @@ namespace pxsim {
                     this.startTimeUs = U.perfNowUs();
                     Runtime.postMessage(<SimulatorStateMessage>{ type: 'status', runtimeid: this.id, state: 'running' });
                 } else {
+                    this.stopRecording();
                     Runtime.postMessage(<SimulatorStateMessage>{ type: 'status', runtimeid: this.id, state: 'killed' });
                 }
                 if (this.stateChanged) this.stateChanged();
@@ -649,6 +832,7 @@ namespace pxsim {
                     return
                 }
                 U.assert(!__this.loopLock)
+                __this.perfStartRuntime()
                 try {
                     runtime = __this
                     while (!!p) {
@@ -660,7 +844,9 @@ namespace pxsim {
                         if (__this.currFrame.overwrittenPC)
                             p = __this.currFrame
                     }
+                    __this.perfStopRuntime()
                 } catch (e) {
+                    __this.perfStopRuntime()
                     if (__this.errorHandler)
                         __this.errorHandler(e)
                     else {
@@ -729,6 +915,26 @@ namespace pxsim {
                 currResume = buildResume(s, retPC)
             }
 
+            function setupLambda(s: StackFrame, a: RefAction | LabelFn) {
+                if (a instanceof RefAction) {
+                    s.fn = a.func
+                    s.caps = a.fields
+                } else {
+                    s.fn = a
+                }
+            }
+
+            function checkSubtype(v: RefRecord, low: number, high: number) {
+                return v && v.vtable && low <= v.vtable.classNo && v.vtable.classNo <= high;
+            }
+
+            function failedCast(v: any) {
+                // TODO generate the right panic codes
+                if ((pxsim as any).control && (pxsim as any).control.dmesgValue)
+                    (pxsim as any).control.dmesgValue(v)
+                oops("failed cast on " + v)
+            }
+
             function buildResume(s: StackFrame, retPC: number) {
                 if (currResume) oops("already has resume")
                 s.pc = retPC;
@@ -749,7 +955,7 @@ namespace pxsim {
                         let frame: StackFrame = {
                             parent: s,
                             fn: w.func,
-                            lambdaArgs: [w.a0, w.a1, w.a2],
+                            lambdaArgs: w.args,
                             pc: 0,
                             caps: w.caps,
                             depth: s.depth + 1,
@@ -797,5 +1003,63 @@ namespace pxsim {
 
             initCurrentRuntime(msg);
         }
+
+        public setupPerfCounters(names: string[]) {
+            if (!names || !names.length)
+                return
+            this.perfCounters = names.map(s => new PerfCounter(s))
+        }
+
+        private perfStartRuntime() {
+            if (this.perfOffset !== 0) {
+                this.perfStack++
+            } else {
+                this.perfOffset = U.perfNowUs() - this.perfElapsed
+            }
+        }
+
+        private perfStopRuntime() {
+            if (this.perfStack) {
+                this.perfStack--
+            } else {
+                this.perfElapsed = this.perfNow()
+                this.perfOffset = 0
+            }
+        }
+
+        public perfNow() {
+            if (this.perfOffset === 0)
+                U.userError("bad time now")
+            return (U.perfNowUs() - this.perfOffset) | 0
+        }
+
+        public startPerfCounter(n: number) {
+            if (!this.perfCounters)
+                return
+            const c = this.perfCounters[n]
+            if (c.start) U.userError("startPerf")
+            c.start = this.perfNow()
+        }
+
+        public stopPerfCounter(n: number) {
+            if (!this.perfCounters)
+                return
+            const c = this.perfCounters[n]
+            if (!c.start) U.userError("stopPerf")
+            c.value += this.perfNow() - c.start;
+            c.start = 0;
+            c.numstops++;
+        }
     }
+
+
+    export class PerfCounter {
+        start = 0;
+        numstops = 0;
+        value = 0;
+        constructor(public name: string) { }
+    }
+
+
+
 }
