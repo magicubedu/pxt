@@ -1525,6 +1525,7 @@ namespace pxt.blocks {
         const w = b.workspace;
         const e = mkEnv(w, blockInfo);
         infer(e, w);
+        trackAllVariables([b], e);
         const compiled = compileStatementBlock(e, b)
         removeAllPlaceholders();
         return tdASTtoTS(e, compiled);
