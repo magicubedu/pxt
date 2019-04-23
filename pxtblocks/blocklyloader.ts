@@ -1583,13 +1583,13 @@ namespace pxt.blocks {
                             if (content.blocks !== undefined) {
                                 blocklyElement = Blockly.Xml.textToDom(content.blocks);
                             }
-                            if (content.ts !== undefined && validateBlocklyElement(blocklyElement) === false) {
+                            /*if (content.ts !== undefined && validateBlocklyElement(blocklyElement) === false) {
                                 const decompileResult = await decompileSnippetAsync(content.ts);
                                 if (decompileResult === undefined) {
                                     throw new Error("PARSE_ERROR");
                                 }
                                 blocklyElement = Blockly.Xml.textToDom(decompileResult);
-                            }
+                            }*/
                             if (validateBlocklyElement(blocklyElement) === false) {
                                 throw new Error("INVALID_INPUT");
                             }
