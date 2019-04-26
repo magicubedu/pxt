@@ -1395,6 +1395,7 @@ namespace pxt.blocks {
                             element.removeAttribute("deletable");
                             element.removeAttribute("movable");
                             element.removeAttribute("editable");
+                            element.removeAttribute("id");
                         });
                         blockCopyHandler({
                             blocks: Blockly.Xml.domToText(xmlRoot)
