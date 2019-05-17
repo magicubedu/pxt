@@ -1397,6 +1397,10 @@ namespace pxt.blocks {
                             element.removeAttribute("editable");
                             element.removeAttribute("id");
                         });
+                        xmlRoot.querySelectorAll("comment").forEach(element => {
+                            element.removeAttribute("h");
+                            element.removeAttribute("w");
+                        });
                         blockCopyHandler({
                             blocks: Blockly.Xml.domToText(xmlRoot)
                         });
