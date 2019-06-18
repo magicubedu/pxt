@@ -3816,5 +3816,5 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }, false);
 
-    pxt.blocks.decompileSnippetAsync = compiler.decompileSnippetAsync;
+    pxt.blocks.decompileSnippetAsync = compiler.decompileBlocksSnippetAsync;
 })
