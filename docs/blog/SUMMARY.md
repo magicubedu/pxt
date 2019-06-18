@@ -1,6 +1,10 @@
 # Microsoft MakeCode Blog
 
 * [Blog](/blog)
+    * [MakeCode for the micro:bit – 2019 Release](/blog/microbit/2019-release)
+    * [Project Alava: Programming Webs of Microcontrollers](/blog/alava/alava)
+    * [MakeCode for the micro:bit – 2019 Beta Release](/blog/microbit/2019-beta)
+    * [Intro to CS with the micro:bit – free Educator Materials](/blog/microbit/csintro-educator)
     * [MakeCode Arcade: Retro Gaming, Modern Programming](/blog/arcade/01-18-2019)
     * [Cartoon Network Projects for the Adafruit Circuit Playground Express!](/blog/adafruit-circuit-playground-express/cn-projects)
     * [New Maker Course for the Adafruit Circuit Playground Express!](/blog/adafruit-circuit-playground-express/maker-course)

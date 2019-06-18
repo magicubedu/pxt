@@ -959,6 +959,12 @@ declare module Blockly {
             isMovable(): boolean;
     
             /**
+             * Get whether we should persist this block as movable or not.
+             * @return {boolean} True if movable.
+             */
+            isMovablePersisted(): boolean;
+    
+            /**
              * Set whether this block is movable or not.
              * @param {boolean} movable True if movable.
              */
@@ -993,6 +999,12 @@ declare module Blockly {
              * @return {boolean} True if editable.
              */
             isEditable(): boolean;
+    
+            /**
+             * Get whether we should persist this block as editable.
+             * @return {boolean} True if editable.
+             */
+            isEditablePersisted(): boolean;
     
             /**
              * Set whether this block is editable or not.
@@ -1370,6 +1382,25 @@ declare module Blockly {
             setCommentText(text: string): void;
     
             /**
+             * Set this Block's breakpoint as enabled or disabled.
+             * @param {boolean} enable A boolean definining if the breakpoint should be enabled or disabled.
+             */
+            enableBreakpoint(enable: boolean): void;
+    
+            /**
+             * Returns a boolean representing if the block has a breakpoint set or not 
+             * (regardless of whether it is enabled).
+             * @return {boolean} Block's breakpoint set or not.
+             */
+            isBreakpointSet(): boolean;
+    
+            /**
+             * Set this block's breakpoint.
+             * @param {boolean} set Boolean representing if the breakpoint is now set or not.
+             */
+            setBreakpoint(set: boolean): void;
+    
+            /**
              * Set this block's output shape.
              * e.g., null, OUTPUT_SHAPE_HEXAGONAL, OUTPUT_SHAPE_ROUND, OUTPUT_SHAPE_SQUARE.
              * @param {?number} outputShape Value representing output shape
@@ -1670,6 +1701,13 @@ declare module Blockly {
              *     being moved to a different surface.
              */
             clearAndHide(opt_newSurface?: Element): void;
+    
+            /**
+             * Sets the opacity of the drag surface and everything on it.
+             * @param {number} value The new opacity value to use.
+             * @package
+             */
+            setOpacity(value: number): void;
     } 
     
 }
@@ -2727,7 +2765,13 @@ declare module Blockly {
             warning: Blockly.Warning;
     
             /**
-             * Returns a list of mutator, comment, and warning icons.
+             * Block's breakpoint icon (if any).
+             * @type {Blockly.Breakpoint}
+             */
+            breakpoint: Blockly.Breakpoint;
+    
+            /**
+             * Returns a list of breakpoint, mutator, comment, and warning icons.
              * @return {!Array} List of icons.
              */
             getIcons(): any[];
@@ -2938,6 +2982,12 @@ declare module Blockly {
              * @return {string} Block's comment.
              */
             getCommentText(): string;
+    
+            /**
+             * Set this blockSvg's breakpoint as enabled.
+             * @param {boolean} enable Boolean representing if the breakpoint is being enabled or disabled.
+             */
+            enableBreakpoint(enable: boolean): void;
     
             /**
              * Set this block's comment text.
@@ -5155,9 +5205,9 @@ declare module Blockly.DropDownDiv {
 
     /**
      * Provide the div for inserting content into the drop-down.
-     * @return {Element} Div to populate with content
+     * @return {HTMLElement} Div to populate with content
      */
-    function getContentDiv(): Element;
+    function getContentDiv(): HTMLElement;
 
     /**
      * Clear the content of the drop-down.
@@ -5797,10 +5847,10 @@ declare module Blockly {
     
             /**
              * Box drawn around a field.
-             * @type {SVGRectElement}
+             * @type {SVGElement}
              * @private
              */
-            arrow_: SVGRectElement;
+            arrow_: SVGElement;
     
             /**
              * Box drawn around a field.
@@ -8368,10 +8418,10 @@ declare module Blockly {
     
             /**
              * Class for a flyout.
-             * @param {!Object} workspaceOptions Dictionary of options for the workspace.
+             * @param {!Blockly.WorkspaceOptions} workspaceOptions Dictionary of options for the workspace.
              * @constructor
              */
-            constructor(workspaceOptions: Object);
+            constructor(workspaceOptions: Blockly.WorkspaceOptions);
     
             /**
              * @type {!Blockly.Workspace}
@@ -8516,6 +8566,27 @@ declare module Blockly {
             dragAngleRange_: number;
     
             /**
+             * The svg or g element that contains the flyout dom (excluding scrollbar).
+             * @type {SVGElement}
+             * @private
+             */
+            svgGroup_: SVGElement;
+    
+            /**
+             * Scrollbar for scrolling blocks.
+             * @type {Blockly.Scrollbar}
+             * @private
+             */
+            scrollbar_: Blockly.Scrollbar;
+    
+            /**
+             * The workspace this flyout puts blocks on
+             * @type {Blockly.WorkspaceSvg}
+             * @private
+             */
+            targetWorkspace_: Blockly.WorkspaceSvg;
+    
+            /**
              * Creates the flyout's DOM.  Only needs to be called once.  The flyout can
              * either exist as its own svg element or be a g element nested inside a
              * separate svg element.
@@ -8594,9 +8665,16 @@ declare module Blockly {
             positionAt_(width: number, height: number, x: number, y: number): void;
     
             /**
-             * Hide and empty the flyout.
+             * Hide the flyout.
+             * Note: this does not remove any flyout state like event listeners.
              */
             hide(): void;
+    
+            /**
+             * Delete any event listeners.
+             * @private
+             */
+            clearOldEventListeners_(): void;
     
             /**
              * Show and populate the flyout.
@@ -8943,11 +9021,11 @@ declare module Blockly {
     
             /**
              * Class for a flyout.
-             * @param {!Object} workspaceOptions Dictionary of options for the workspace.
+             * @param {!Blockly.WorkspaceOptions} workspaceOptions Dictionary of options for the workspace.
              * @extends {Blockly.Flyout}
              * @constructor
              */
-            constructor(workspaceOptions: Object);
+            constructor(workspaceOptions: Blockly.WorkspaceOptions);
     
             /**
              * Flyout should be laid out horizontally.
@@ -9053,11 +9131,11 @@ declare module Blockly {
     
             /**
              * Class for a flyout.
-             * @param {!Object} workspaceOptions Dictionary of options for the workspace.
+             * @param {!Blockly.WorkspaceOptions} workspaceOptions Dictionary of options for the workspace.
              * @extends {Blockly.Flyout}
              * @constructor
              */
-            constructor(workspaceOptions: Object);
+            constructor(workspaceOptions: Blockly.WorkspaceOptions);
     
             /**
              * Flyout should be laid out vertically.
@@ -10086,6 +10164,14 @@ declare module Blockly {
              * @return {number} Horizontal offset for next item to draw.
              */
             renderIcon(cursorX: number): number;
+    
+            /**
+             * Move the icon.
+             * @param {number} cursorX Horizontal offset at which to position the icon.
+             * @param {number} cursorY Vertical offset at which to position the icon.
+             * @return {number} Horizontal offset for next item to draw.
+             */
+            moveIcon(cursorX: number, cursorY: number): number;
     
             /**
              * Notification that the icon has moved.  Update the arrow accordingly.
@@ -13422,9 +13508,23 @@ declare module Blockly.Functions {
      * @return {boolean} True if the block is a function argument reporter.
      */
     function isFunctionArgumentReporter(block: Blockly.BlockSvg): boolean;
+
+    /**
+     * Create a flyout, creates the DOM elements for the flyout, and initializes the flyout.
+     * @param {!Blockly.Workspace} workspace The target and parent workspace for this flyout. The workspace's options will
+     *     be used to create the flyout's inner workspace.
+     * @param {!Element} siblingNode The flyout is added after this reference node. 
+     * @return {!Blockly.Flyout} The newly created flyout.
+     */
+    function createFlyout(workspace: Blockly.Workspace, siblingNode: Element): Blockly.Flyout;
 }
 
 declare module Blockly.pxtBlocklyUtils {
+
+    /**
+     * Whitelist of blocks whose shadow blocks duplicate on drag
+     */
+    var _duplicateOnDragWhitelist: any /*missing*/;
 
     /**
      * Measure some text using a canvas in-memory.
@@ -13451,6 +13551,14 @@ declare module Blockly.pxtBlocklyUtils {
     function isShadowArgumentReporter(block: Blockly.BlockSvg): boolean;
 
     /**
+     * Sets a whitelist of blocks whose shadow blocks duplicate on drag (in addition
+     * to argument reporter blocks).
+     * @param {Array<string>} blockTypes a list of block
+     * @package
+     */
+    function whitelistDraggableBlockTypes(blockTypes: string[]): void;
+
+    /**
      * Finds and returns an argument reporter of the given name, argument type
      * name, and reporter type on the given block, or null if none match.
      * @param {!Blockly.Block} targetBlock The block to search.
@@ -13458,6 +13566,69 @@ declare module Blockly.pxtBlocklyUtils {
      * @return {boolean} Whether there is a matching reporter or not.
      */
     function hasMatchingArgumentReporter(targetBlock: Blockly.Block, reporter: Blockly.Block): boolean;
+}
+
+declare module Blockly {
+
+    class Breakpoint extends Breakpoint__Class { }
+    /** Fake class which should be extended to avoid inheriting static properties */
+    class Breakpoint__Class extends Blockly.Icon__Class  { 
+    
+            /**
+             * Class for a breakpoint.
+             * @param {!Blockly.Block} block The block associated with this breakpoint.
+             * @extends {Blockly.Icon}
+             * @constructor
+             */
+            constructor(block: Blockly.Block);
+    
+            /**
+             * Does this icon get hidden when the block is collapsed.
+             */
+            collapseHidden: any /*missing*/;
+    
+            /**
+             * Create the icon on the block.
+             */
+            createIcon(): void;
+    
+            /**
+             * Draw the breakpoint icon.
+             * @param {!Element} group The icon group.
+             * @private
+             */
+            drawIcon_(group: Element): void;
+    
+            /**
+             * Enable/Disable the breakpoint icon.
+             * @private
+             */
+            enableBreakpoint(): void;
+    
+            /**
+             * Dispose of this breakpoint Icon.
+             */
+            dispose(): void;
+    
+            /**
+             * Toggle the breakpoint icon between set and unset.
+             * @param {boolean} visible True if the breakpoint icon should be set.
+             */
+            setVisible(visible: boolean): void;
+    
+            /**
+             * Is this breakpoint set?
+             * @return {boolean} True if the breakpoint is Set.
+             */
+            isVisible(): boolean;
+    
+            /**
+             * Notification that the icon has moved.
+             * @param {!goog.math.Coordinate} xy Absolute location in workspace coordinates.
+             */
+            setIconLocation(xy: goog.math.Coordinate): void;
+    } 
+    
 }
 
 declare module Blockly.PXTUtils {
@@ -13714,6 +13885,13 @@ declare module Blockly {
              * @constructor
              */
             constructor(workspace: Blockly.Workspace, horizontal: boolean, opt_pair?: boolean, opt_class?: string);
+    
+            /**
+             * The svg element containing the scrollbar dom elements.
+             * @type {!SVGSVGElement}
+             * @private
+             */
+            svgGroup_: SVGSVGElement;
     
             /**
              * The upper left corner of the scrollbar's SVG group in CSS pixels relative
@@ -14851,7 +15029,7 @@ declare module Blockly.Events {
             /**
              * Class for a UI event.
              * @param {Blockly.Block} block The affected block.
-             * @param {string} element One of 'selected', 'comment', 'mutator', etc.
+             * @param {string} element One of 'selected', 'comment', 'mutator', 'breakpoint' etc.
              * @param {*} oldValue Previous value of element.
              * @param {*} newValue New value of element.
              * @extends {Blockly.Events.Abstract}
@@ -16550,6 +16728,12 @@ declare module Blockly {
              * @return {?Blockly.VariableMap} The  variable map.
              */
             getVariableMap(): Blockly.VariableMap;
+    
+            /**
+             * Sets the debugMode option in the workspace.
+             * @param {boolean} debugMode value to set to this option.
+             */
+            setDebugModeOption(debugMode: boolean): void;
     } 
     
 }
@@ -18077,9 +18261,9 @@ declare module Blockly {
     
             /**
              * Get the SVG element that contains this workspace.
-             * @return {Element} SVG element.
+             * @return {SVGElement} SVG element.
              */
-            getParentSvg(): Element;
+            getParentSvg(): SVGElement;
     
             /**
              * Translate this workspace to new coordinates.

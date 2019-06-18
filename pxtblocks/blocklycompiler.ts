@@ -420,7 +420,7 @@ namespace pxt.blocks {
                     default:
                         if (b.type in e.stdCallTable) {
                             const call = e.stdCallTable[b.type];
-                            if (call.attrs.shim === "ENUM_GET") return;
+                            if (call.attrs.shim === "ENUM_GET" || call.attrs.shim === "KIND_GET") return;
                             visibleParams(call, countOptionals(b)).forEach((p, i) => {
                                 const isInstance = call.isExtensionMethod && i === 0;
                                 if (p.definitionName && !b.getFieldValue(p.definitionName)) {
@@ -706,7 +706,7 @@ namespace pxt.blocks {
         const name = escapeVarName(b.getFieldValue("function_name"), e, true);
         const stmts = getInputTargetBlock(b, "STACK");
         const argsDeclaration = (b as Blockly.FunctionDefinitionBlock).getArguments().map(a => {
-            return `${escapeVarName(a.name, e)}: ${ts.pxtc.escapeIdentifier(a.type)}`;
+            return `${escapeVarName(a.name, e)}: ${a.type}`;
         });
         return [
             mkText(`function ${name} (${argsDeclaration.join(", ")})`),
@@ -877,6 +877,7 @@ namespace pxt.blocks {
         renames: RenameMap;
         stats: pxt.Map<number>;
         enums: pxtc.EnumInfo[];
+        kinds: pxtc.KindInfo[];
         idToScope: pxt.Map<Scope>;
         blockDeclarations: pxt.Map<VarInfo[]>;
         blocksInfo: pxtc.BlocksInfo;
@@ -905,6 +906,7 @@ namespace pxt.blocks {
             },
             stats: {},
             enums: [],
+            kinds: [],
             idToScope: {},
             blockDeclarations: {},
             allVariables: [],
@@ -1073,13 +1075,29 @@ namespace pxt.blocks {
             }, true);
         }
 
-        if (isDef) binding.alreadyDeclared = true;
-        else if (!binding.firstReference) binding.firstReference = b;
-
         let expr = compileExpression(e, bExpr, comments);
+
+        let bindString = binding.escapedName + " = ";
+
+        if (isDef) {
+            binding.alreadyDeclared = true;
+            const declaredType = getConcreteType(binding.type);
+
+            bindString = `let ${binding.escapedName} = `;
+
+            if (declaredType) {
+                const expressionType = getConcreteType(returnType(e, bExpr));
+                if (declaredType.type !== expressionType.type) {
+                    bindString = `let ${binding.escapedName}: ${declaredType.type} = `;
+                }
+            }
+        }
+        else if (!binding.firstReference) {
+            binding.firstReference = b;
+        }
+
         return mkStmt(
-            mkText(isDef ? "let " : ""),
-            mkText(binding.escapedName + " = "),
+            mkText(bindString),
             expr)
     }
 
@@ -1141,6 +1159,10 @@ namespace pxt.blocks {
             const enumName = func.attrs.enumName;
             const enumMember = b.getFieldValue("MEMBER").replace(/^\d+/, "");
             return H.mkPropertyAccess(enumMember, mkText(enumName));
+        }
+        else if (func.attrs.shim === "KIND_GET") {
+            const info = e.kinds.filter(k => k.blockId === func.attrs.blockId)[0];
+            return H.mkPropertyAccess(b.getFieldValue("MEMBER"), mkText(info.name));
         }
         else {
             args = visibleParams(func, countOptionals(b)).map((p, i) => compileArgument(e, b, p, comments, func.isExtensionMethod && i === 0 && !func.isExpression));
@@ -1396,27 +1418,6 @@ namespace pxt.blocks {
 
             if (value !== null) {
                 res.push(mkText(value + "\n"));
-
-                // const declaredVars: string = (b as any).declaredVariables
-                // if (declaredVars) {
-                //     const varNames = declaredVars.split(",");
-                //     varNames.forEach(n => {
-                //         const existing = lookup(e, n);
-                //         if (existing) {
-                //             existing.assigned = VarUsage.Assign;
-                //             existing.mustBeGlobal = false;
-                //         }
-                //         else {
-                //             e.bindings.push({
-                //                 name: n,
-                //                 type: mkPoint(null),
-                //                 assigned: VarUsage.Assign,
-                //                 declaredInLocalScope: 1,
-                //                 mustBeGlobal: false
-                //             });
-                //         }
-                //     })
-                // }
             }
             else {
                 break;
@@ -1487,10 +1488,18 @@ namespace pxt.blocks {
                 Object.keys(blockInfo.enumsByName).forEach(k => e.enums.push(blockInfo.enumsByName[k]));
             }
 
+            if (blockInfo.kindsByName) {
+                Object.keys(blockInfo.kindsByName).forEach(k => e.kinds.push(blockInfo.kindsByName[k]));
+            }
+
             blockInfo.blocks
                 .forEach(fn => {
                     if (e.stdCallTable[fn.attributes.blockId]) {
-                        pxt.reportError("blocks", "function already defined", { "details": fn.attributes.blockId });
+                        pxt.reportError("blocks", "function already defined", {
+                            "details": fn.attributes.blockId,
+                            "qualifiedName": fn.qName,
+                            "packageName": fn.pkg,
+                        });
                         return;
                     }
                     e.renames.takenNames[fn.namespace] = true;
@@ -1551,14 +1560,13 @@ namespace pxt.blocks {
                 return eventWeight(a, e) - eventWeight(b, e)
             });
 
+            updateDisabledBlocks(e, w.getAllBlocks(), topblocks);
+
             trackAllVariables(topblocks, e);
 
             infer(e, w);
 
             const stmtsMain: JsNode[] = [];
-
-
-            updateDisabledBlocks(e, w.getAllBlocks(), topblocks);
 
             // compile workspace comments, add them to the top
             const topComments = w.getTopComments(true);
@@ -1630,6 +1638,20 @@ namespace pxt.blocks {
                         mkText(`enum ${info.name}`),
                         mkBlock([declarations])
                     ]));
+                }
+            });
+
+            e.kinds.forEach(info => {
+                const models = w.getVariablesOfType("KIND_" + info.name);
+                if (models && models.length) {
+                    const userDefined = models.map(m => m.name).filter(n => info.initialMembers.indexOf(n) === -1);
+
+                    if (userDefined.length) {
+                        stmtsEnums.push(mkGroup([
+                            mkText(`namespace ${info.name}`),
+                            mkBlock(userDefined.map(varName => mkStmt(mkText(`export const ${varName} = ${info.name}.${info.createFunctionName}()`))))
+                        ]));
+                    }
                 }
             });
 
@@ -2130,10 +2152,16 @@ namespace pxt.blocks {
                 currentScope.assignedVars.push(info.id);
                 currentScope.referencedVars.push(info.id);
             }
-
-            forEachChildExpression(block, child => {
-                trackVariables(child, currentScope, e);
-            });
+            else if (block.type === pxtc.TS_STATEMENT_TYPE) {
+                const declaredVars: string = (block as any).declaredVariables
+                if (declaredVars) {
+                    const varNames = declaredVars.split(",");
+                    varNames.forEach(vName => {
+                        const info = findOrDeclareVariable(vName, currentScope);
+                        info.alreadyDeclared = true;
+                    });
+                }
+            }
 
             if (hasStatementInput(block)) {
                 const vars: VarInfo[] = getDeclaredVariables(block, e).map(binding => {
@@ -2150,7 +2178,7 @@ namespace pxt.blocks {
                     // We need to create a scope for this block, and then a scope
                     // for each statement input (in case there are multiple)
 
-                    parentScope = currentScope.firstStatement === block ? currentScope : {
+                    parentScope = {
                         parent: currentScope,
                         firstStatement: block,
                         declaredVars: {},
@@ -2172,6 +2200,10 @@ namespace pxt.blocks {
                     currentScope.children.push(parentScope);
                 }
 
+                forEachChildExpression(block, child => {
+                    trackVariables(child, parentScope, e);
+                });
+
                 forEachStatementInput(block, connectedBlock => {
                     const newScope: Scope = {
                         parent: parentScope,
@@ -2183,6 +2215,11 @@ namespace pxt.blocks {
                     };
                     parentScope.children.push(newScope);
                     trackVariables(connectedBlock, newScope, e);
+                });
+            }
+            else {
+                forEachChildExpression(block, child => {
+                    trackVariables(child, currentScope, e);
                 });
             }
 
@@ -2301,8 +2338,7 @@ namespace pxt.blocks {
                 // If we can't find a better place to declare the variable, we'll declare
                 // it before the first statement in the code block so we need to keep
                 // track of the blocks ids
-                Util.assert(!e.blockDeclarations[scope.firstStatement.id]);
-                e.blockDeclarations[scope.firstStatement.id] = decls;
+                e.blockDeclarations[scope.firstStatement.id] = decls.concat(e.blockDeclarations[scope.firstStatement.id] || []);
             }
 
             decls.forEach(d => e.allVariables.push(d));

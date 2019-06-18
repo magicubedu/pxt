@@ -12,7 +12,8 @@ namespace pxt.toolbox {
         search: '#000',
         debug: '#e03030',
         default: '#dddddd',
-        topblocks: '#aa8f00'
+        topblocks: '#aa8f00',
+        recipes: '#717171'
     }
 
     export const blockIcons: Map<number | string> = {
@@ -30,10 +31,10 @@ namespace pxt.toolbox {
         search: '\uf002',
         debug: '\uf111',
         default: '\uf12e',
-        topblocks: '\uf005'
+        topblocks: '\uf005',
+        recipes: '\uf0eb'
     }
 
-    let toolboxStyle: HTMLStyleElement;
     let toolboxStyleBuffer: string = '';
     export function appendToolboxIconCss(className: string, i: string): void {
         if (toolboxStyleBuffer.indexOf(className) > -1) return;
@@ -82,6 +83,7 @@ namespace pxt.toolbox {
 
     export function advancedTitle() { return Util.lf("{id:category}Advanced"); }
     export function addPackageTitle() { return Util.lf("{id:category}Extensions"); }
+    export function recipesTitle() { return Util.lf("{id:category}Tutorials"); }
 
     /**
      * Convert blockly hue to rgb

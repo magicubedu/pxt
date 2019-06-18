@@ -50,6 +50,7 @@ export class ScriptSearch extends data.Component<ISettingsProps, ScriptSearchSta
         this.installGh = this.installGh.bind(this);
         this.addLocal = this.addLocal.bind(this);
         this.toggleExperiment = this.toggleExperiment.bind(this);
+        this.importExtensionFile = this.importExtensionFile.bind(this);
     }
 
     private hide() {
@@ -172,6 +173,7 @@ export class ScriptSearch extends data.Component<ISettingsProps, ScriptSearchSta
         const features = this.state.features;
         return Object.keys(bundled).filter(k => !/prj$/.test(k))
             .map(k => JSON.parse(bundled[k]["pxt.json"]) as pxt.PackageConfig)
+            .filter(pk => !pk.hidden)
             .filter(pk => !query || pk.name.toLowerCase().indexOf(query.toLowerCase()) > -1) // search filter
             .filter(pk => boards || !pkg.mainPkg.deps[pk.name] || pkg.mainPkg.deps[pk.name].cppOnly) // don't show package already referenced in extensions
             .filter(pk => !/---/.test(pk.name)) //filter any package with ---, these are part of common-packages such as core---linux or music---pwm
@@ -335,6 +337,12 @@ export class ScriptSearch extends data.Component<ISettingsProps, ScriptSearchSta
         this.forceUpdate();
     }
 
+    importExtensionFile() {
+        pxt.tickEvent("extensions.import", undefined, { interactiveConsent: true });
+        this.hide();
+        this.props.parent.showImportFileDialog({ extension: true });
+    }
+
     renderCore() {
         const { mode, closeIcon, visible, searchFor, experimentsState } = this.state;
 
@@ -345,6 +353,11 @@ export class ScriptSearch extends data.Component<ISettingsProps, ScriptSearchSta
         const local = this.fetchLocal();
         const experiments = this.fetchExperiments();
         const isSearching = searchFor && (ghdata.status === data.FetchStatus.Pending || urldata.status === data.FetchStatus.Pending);
+        const disableFileAccessinMaciOs = pxt.appTarget.appTheme.disableFileAccessinMaciOs && (pxt.BrowserUtils.isIOS() || pxt.BrowserUtils.isMac());
+        const showImportFile = mode == ScriptSearchMode.Extensions
+            && pxt.appTarget.appTheme.importExtensionFiles
+            && !disableFileAccessinMaciOs
+            && !searchFor;
 
         const compareConfig = (a: pxt.PackageConfig, b: pxt.PackageConfig) => {
             // core first
@@ -491,6 +504,16 @@ export class ScriptSearch extends data.Component<ISettingsProps, ScriptSearchSta
                                     feedbackUrl={experiment.feedbackUrl}
                                 />
                             )}
+                            {showImportFile ? <codecard.CodeCardView
+                                ariaLabel={lf("Open files from your computer")}
+                                role="button"
+                                key={'import'}
+                                icon="upload ui cardimage"
+                                iconColor="secondary"
+                                name={lf("Import File...")}
+                                description={lf("Open files from your computer")}
+                                onClick={this.importExtensionFile}
+                            /> : undefined}
                         </div>
                     }
                     {isEmpty() ?

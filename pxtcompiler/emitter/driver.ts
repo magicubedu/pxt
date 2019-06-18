@@ -85,6 +85,14 @@ namespace ts.pxtc {
         })
     }
 
+    export function runConversions(opts: CompileOptions) {
+        let diags: KsDiagnostic[] = []
+        for (let pass of pxt.conversionPasses) {
+            U.pushRange(diags, pass(opts))
+        }
+        return diags
+    }
+
     export function compile(opts: CompileOptions) {
         let startTime = Date.now()
         let res: CompileResult = {
@@ -92,6 +100,17 @@ namespace ts.pxtc {
             diagnostics: [],
             success: false,
             times: {},
+        }
+
+        const convDiag = runConversions(opts)
+
+        // save files first, in case we generated some .ts files that fail to compile
+        for (let f of opts.generatedFiles || [])
+            res.outfiles[f] = opts.fileSystem[f]
+
+        if (convDiag.length > 0) {
+            res.diagnostics = convDiag
+            return res;
         }
 
         let fileText: { [index: string]: string } = {};
@@ -210,15 +229,16 @@ namespace ts.pxtc {
 
         let file = program.getSourceFile(fileName);
         annotate(program, fileName, target || (pxt.appTarget && pxt.appTarget.compile));
-        const apis = getApiInfo(opts, program);
+        const apis = getApiInfo(program, opts.jres);
         const blocksInfo = pxtc.getBlocksInfo(apis, bannedCategories);
         const decompileOpts: decompiler.DecompileBlocksOptions = {
             snippetMode: opts.snippetMode,
             alwaysEmitOnStart: opts.alwaysDecompileOnStart,
             includeGreyBlockMessages,
-            useNewFunctions: opts.useNewFunctions
+            allowedArgumentTypes: opts.allowedArgumentTypes || ["number", "boolean", "string"]
         };
-        const bresp = pxtc.decompiler.decompileToBlocks(blocksInfo, file, decompileOpts, pxtc.decompiler.buildRenameMap(program, file));
+        let [renameMap, _] = pxtc.decompiler.buildRenameMap(program, file)
+        const bresp = pxtc.decompiler.decompileToBlocks(blocksInfo, file, decompileOpts, renameMap);
         return bresp;
     }
 

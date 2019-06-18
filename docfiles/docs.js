@@ -241,6 +241,7 @@ function renderSnippets() {
                     snippetClass: 'lang-blocks',
                     signatureClass: 'lang-sig',
                     blocksClass: 'lang-block',
+                    staticPythonClass: 'lang-spy', 
                     shuffleClass: 'lang-shuffle',
                     simulatorClass: 'lang-sim',
                     linksClass: 'lang-cards',
@@ -250,6 +251,7 @@ function renderSnippets() {
                     projectClass: 'lang-project',
                     snippetReplaceParent: true,
                     simulator: true,
+                    showEdit: true,
                     hex: true,
                     hexName: path
                 });

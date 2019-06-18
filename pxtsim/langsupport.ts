@@ -35,6 +35,10 @@ namespace pxsim {
         return Object.keys(cfgKey)
     }
 
+    export function setConfigKey(key: string, id: number) {
+        cfgKey[key] = id;
+    }
+
     export function setConfig(id: number, val: number) {
         cfg[id] = val
     }
@@ -110,6 +114,7 @@ namespace pxsim {
         numFields: number;
         toStringMethod?: LabelFn;
         classNo: number;
+        iface?: Map<any>;
     }
 
     export class RefRecord extends RefObject {
@@ -530,7 +535,6 @@ namespace pxsim {
         export let dumpDmesg: any;
         export let getVTable: any;
         export let valType: any;
-        export let typeOf: any;
         export let lookupPin: any;
         export let deleteRefObject: any;
         export let popThreadContext: any;
@@ -549,6 +553,10 @@ namespace pxsim {
         export let string_inline_utf8_vt: any;
         export let string_cons_vt: any;
         export let string_skiplist16_vt: any;
+
+        export function typeOf(obj: any) {
+            return typeof obj;
+        }
     }
 
     // these can only be used from assembly - silence warnings
@@ -564,7 +572,7 @@ namespace pxsim {
 
         export function pause(ms: number) {
             let cb = getResume();
-            setTimeout(() => { cb() }, ms)
+            runtime.schedule(() => { cb() }, ms)
         }
 
         export function runInBackground(a: RefAction) {

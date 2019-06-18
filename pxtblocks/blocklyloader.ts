@@ -30,11 +30,39 @@ namespace pxt.blocks {
     export const optionalDummyInputPrefix = "0_optional_dummy";
     export const optionalInputWithFieldPrefix = "0_optional_field";
 
-    // Matches arrays and tuple types
-    const arrayTypeRegex = /^(?:Array<.+>)|(?:.+\[\])|(?:\[.+\])$/;
-    export function isArrayType(type: string) {
-        return arrayTypeRegex.test(type);
+    // Matches arrays
+    export function isArrayType(type: string): string {
+        const arrayTypeRegex = /^(?:Array<(.+)>)|(?:(.+)\[\])|(?:\[.+\])$/;
+        let parsed = arrayTypeRegex.exec(type);
+        if (parsed) {
+            // Is an array, returns what type it is an array of
+            if (parsed[1]) {
+                // Is an array with form Array<type>
+                return parsed[1];
+            } else {
+                // Is an array with form type[]
+                return parsed[2];
+            }
+        } else {
+            // Not an array
+            return undefined;
+        }
     }
+
+    // Matches tuples
+    export function isTupleType(type: string): string[] {
+        const tupleTypeRegex = /^\[(.+)\]$/;
+        let parsed = tupleTypeRegex.exec(type);
+        if (parsed) {
+            // Returns an array containing the types of the tuple
+            return parsed[1].split(/,\s*/);
+        } else {
+            // Not a tuple
+            return undefined;
+        }
+    }
+
+    const primitiveTypeRegex = /^(string|number|boolean)$/;
 
     type NamedField = { field: Blockly.Field, name?: string };
 
@@ -63,6 +91,9 @@ namespace pxt.blocks {
         "variables_change": true,
         "device_while": true
     }
+
+    // Cached block info from the last inject operation
+    let cachedBlockInfo: pxtc.BlocksInfo;
 
     // blocks cached
     interface CachedBlock {
@@ -101,14 +132,46 @@ namespace pxt.blocks {
         const value = document.createElement("value");
         value.setAttribute("name", p.definitionName);
 
-        const shadow = document.createElement(isVariable ? "block" : "shadow");
+        const isArray = isArrayType(p.type);
+
+        const shadow = document.createElement(isVariable || isArray ? "block" : "shadow");
+
         value.appendChild(shadow);
 
-        const typeInfo = typeDefaults[p.type];
+        const typeInfo = typeDefaults[isArray || p.type];
 
-        shadow.setAttribute("type", shadowId || typeInfo && typeInfo.block || p.type);
+        shadow.setAttribute("type", shadowId || (isArray ? 'lists_create_with' : typeInfo && typeInfo.block || p.type));
         shadow.setAttribute("colour", (Blockly as any).Colours.textField);
 
+        // if an array of booleans, numbers, or strings
+        if (isArray && typeInfo && !shadowId) {
+            const mut = document.createElement('mutation');
+            mut.setAttribute("items", "3");
+            shadow.appendChild(mut);
+            for (let i = 0; i < 3; i++) {
+                const innerValue = document.createElement("value");
+                innerValue.setAttribute("name", "ADD" + i);
+                const innerShadow = document.createElement("shadow");
+                innerShadow.setAttribute("type", typeInfo.block);
+                const field = document.createElement("field");
+                field.setAttribute("name", typeInfo.field);
+                switch (isArray) {
+                    case "number":
+                        field.appendChild(document.createTextNode("" + (i + 1)));
+                        break;
+                    case "string":
+                        field.appendChild(document.createTextNode(String.fromCharCode('a'.charCodeAt(0) + i)));
+                        break;
+                    case "boolean":
+                        field.appendChild(document.createTextNode("FALSE"));
+                        break;
+                }
+                innerShadow.appendChild(field);
+                innerValue.appendChild(innerShadow);
+                shadow.appendChild(innerValue);
+            }
+            return value;
+        }
         if (typeInfo && (!shadowId || typeInfo.block === shadowId || shadowId === "math_number_minmax")) {
             const field = document.createElement("field");
             shadow.appendChild(field);
@@ -242,7 +305,10 @@ namespace pxt.blocks {
         }
         if (fn.parameters) {
             comp.parameters.filter(pr => !pr.isOptional &&
-                (/^(string|number|boolean)$/.test(pr.type) || pr.shadowBlockId || pr.defaultValue))
+                (primitiveTypeRegex.test(pr.type)
+                    || primitiveTypeRegex.test(isArrayType(pr.type))
+                    || pr.shadowBlockId
+                    || pr.defaultValue))
                 .forEach(pr => {
                     block.appendChild(createShadowValue(info, pr));
                 })
@@ -299,6 +365,10 @@ namespace pxt.blocks {
     }
 
     export function injectBlocks(blockInfo: pxtc.BlocksInfo): pxtc.SymbolInfo[] {
+        cachedBlockInfo = blockInfo;
+
+        Blockly.pxtBlocklyUtils.whitelistDraggableBlockTypes(blockInfo.blocks.filter(fn => fn.attributes.duplicateShadowOnDrag).map(fn => fn.attributes.blockId));
+
         // inject Blockly with all block definitions
         return blockInfo.blocks
             .map(fn => {
@@ -453,7 +523,7 @@ namespace pxt.blocks {
                 comp.handlerArgs.filter(a => !a.inBlockDef).forEach(arg => {
                     const i = block.appendValueInput("HANDLER_DRAG_PARAM_" + arg.name);
                     if (fn.attributes.draggableParameters == "reporter") {
-                        i.setCheck(arg.type);
+                        i.setCheck(getBlocklyCheckForType(arg.type, info));
                     } else {
                         i.setCheck("Variable");
                     }
@@ -473,7 +543,9 @@ namespace pxt.blocks {
                     input.fieldRow.forEach((fieldRow: Blockly.FieldCustom) => {
                         if (fieldRow.isFieldCustom_ && fieldRow.saveOptions) {
                             const getOptions = fieldRow.saveOptions();
-                            el.setAttribute(`customfield`, JSON.stringify(getOptions));
+                            if (getOptions) {
+                                el.setAttribute(`customfield`, JSON.stringify(getOptions));
+                            }
                         }
                     })
                 })
@@ -484,7 +556,9 @@ namespace pxt.blocks {
                     input.fieldRow.forEach((fieldRow: Blockly.FieldCustom) => {
                         if (fieldRow.isFieldCustom_ && fieldRow.restoreOptions) {
                             const options = JSON.parse(saved.getAttribute(`customfield`));
-                            fieldRow.restoreOptions(options);
+                            if (options) {
+                                fieldRow.restoreOptions(options);
+                            }
                         }
                     })
                 })
@@ -508,39 +582,18 @@ namespace pxt.blocks {
         const body = fn.parameters ? fn.parameters.filter(pr => pr.type == "() => void" || pr.type == "Action")[0] : undefined;
         if (body || hasHandler) {
             block.appendStatementInput("HANDLER")
-                .setCheck("null");
+                .setCheck(null);
             block.setInputsInline(true);
         }
 
-        switch (fn.retType) {
-            case "number": block.setOutput(true, "Number"); break;
-            case "string": block.setOutput(true, "String"); break;
-            case "boolean": block.setOutput(true, "Boolean"); break;
-            case "void": break; // do nothing
-            //TODO
-            default:
-                if (fn.retType !== "T") {
-                    const opt_check = isArrayType(fn.retType) ? ["Array"] : [];
-
-                    const si_r = info.apis.byQName[fn.retType];
-                    if (si_r && si_r.extendsTypes && 0 < si_r.extendsTypes.length) {
-                        opt_check.push(...si_r.extendsTypes);
-                    } else {
-                        opt_check.push(fn.retType);
-                    }
-
-                    block.setOutput(true, opt_check);
-                } else {
-                    block.setOutput(true);
-                }
-        }
+        setOutputCheck(block, fn.retType, info);
 
         // hook up/down if return value is void
         const hasHandlers = hasArrowFunction(fn);
         block.setPreviousStatement(!(hasHandlers && !fn.attributes.handlerStatement) && fn.retType == "void");
         block.setNextStatement(!(hasHandlers && !fn.attributes.handlerStatement) && fn.retType == "void");
 
-        block.setTooltip(fn.attributes.jsDoc);
+        block.setTooltip( /^__/.test(fn.namespace) ? "" : fn.attributes.jsDoc);
         function buildBlockFromDef(def: pxtc.ParsedBlockDef, expanded = false) {
             let anonIndex = 0;
             let firstParam = !expanded && !!comp.thisParameter;
@@ -548,7 +601,7 @@ namespace pxt.blocks {
             const inputs = splitInputs(def);
             const imgConv = new ImageConverter()
 
-            if (fn.attributes.shim === "ENUM_GET") {
+            if (fn.attributes.shim === "ENUM_GET" || fn.attributes.shim === "KIND_GET") {
                 if (comp.parameters.length > 1 || comp.thisParameter) {
                     console.warn(`Enum blocks may only have 1 parameter but ${fn.attributes.blockId} has ${comp.parameters.length}`);
                     return;
@@ -576,6 +629,13 @@ namespace pxt.blocks {
                         });
                         return;
                     }
+                    else if (fn.attributes.shim === "KIND_GET") {
+                        fields.push({
+                            name: "MEMBER",
+                            field: new pxtblockly.FieldKind(info.kindsByName[fn.attributes.kindNamespace || fn.attributes.blockNamespace || fn.namespace])
+                        });
+                        return;
+                    }
                     else {
                         // find argument
                         let pr = getParameterFromDef(part, comp, firstParam);
@@ -588,7 +648,7 @@ namespace pxt.blocks {
 
                         if (isHandlerArg(pr)) {
                             inputName = "HANDLER_DRAG_PARAM_" + pr.name;
-                            inputCheck = fn.attributes.draggableParameters === "reporter" ? pr.type : "Variable";
+                            inputCheck = fn.attributes.draggableParameters === "reporter" ? getBlocklyCheckForType(pr.type, info) : "Variable";
                             return;
                         }
 
@@ -706,6 +766,8 @@ namespace pxt.blocks {
                                 else {
                                     inputCheck = "String"
                                 }
+                            } else if (pr.type == "any") {
+                                inputCheck = null;
                             } else {
                                 inputCheck = pr.type == "T" ? undefined : (isArrayType(pr.type) ? ["Array", pr.type] : pr.type);
                             }
@@ -826,6 +888,7 @@ namespace pxt.blocks {
         initDrag();
         initDebugger();
         initComments();
+        initTooltip();
 
         // PXT is in charge of disabling, don't record undo for disabled events
         (Blockly.Block as any).prototype.setDisabled = function (disabled: any) {
@@ -838,6 +901,54 @@ namespace pxt.blocks {
                 this.disabled = disabled;
             }
         };
+    }
+
+    /**
+     * Converts a TypeScript type into an array of type checks for Blockly inputs/outputs. Use
+     * with block.setOutput() and input.setCheck().
+     *
+     * @returns An array of checks if the type is valid, undefined if there are no valid checks
+     *      (e.g. type is void), and null if all checks should be accepted (e.g. type is generic)
+     */
+    function getBlocklyCheckForType(type: string, info: pxtc.BlocksInfo) {
+        switch (type) {
+            // Blockly capitalizes primitive types for its builtin math/string/logic blocks
+            case "number": return ["Number"];
+            case "string": return ["String"];
+            case "boolean": return ["Boolean"];
+            case "any": return null;
+            case "void": return undefined
+            default:
+                if (type !== "T") {
+                    // We add "Array" to the front for array types so that they can be connected
+                    // to the blocks that accept any array (e.g. length, push, pop, etc)
+                    const opt_check = isArrayType(type) ? ["Array"] : [];
+
+                    // Blockly has no concept of inheritance, so we need to add all
+                    // super classes to the check array
+                    const si_r = info.apis.byQName[type];
+                    if (si_r && si_r.extendsTypes && 0 < si_r.extendsTypes.length) {
+                        opt_check.push(...si_r.extendsTypes);
+                    } else {
+                        opt_check.push(type);
+                    }
+
+                    return opt_check;
+                } else {
+                    // The type is generic, so accept any checks. This is mostly used with functions that
+                    // get values from arrays. This could be improved if we ever add proper type
+                    // inference for generic types
+                    return null;
+                }
+        }
+    }
+
+    function setOutputCheck(block: Blockly.Block, retType: string, info: pxtc.BlocksInfo) {
+        const check = getBlocklyCheckForType(retType, info);
+
+        if (check || check === null) {
+            block.setOutput(true, check);
+        }
     }
 
     function setBuiltinHelpInfo(block: any, id: string) {
@@ -1175,12 +1286,12 @@ namespace pxt.blocks {
                     trashIcon.style.display = 'block';
                     blocklyTreeRoot.style.opacity = `${opacity}`;
                     if (distance < 50) {
-                        blocklyToolboxDiv.classList.add('blocklyToolboxDeleting');
+                        pxt.BrowserUtils.addClass(blocklyToolboxDiv, 'blocklyToolboxDeleting');
                     }
                 } else {
                     trashIcon.style.display = 'none';
                     blocklyTreeRoot.style.opacity = '1';
-                    blocklyToolboxDiv.classList.remove('blocklyToolboxDeleting');
+                    pxt.BrowserUtils.removeClass(blocklyToolboxDiv, 'blocklyToolboxDeleting');
                 }
             }
             return blockDrag.call(this, e, currentDragDeltaXY);
@@ -1201,7 +1312,7 @@ namespace pxt.blocks {
             if (trashIcon && blocklyTreeRoot) {
                 trashIcon.style.display = 'none';
                 blocklyTreeRoot.style.opacity = '1';
-                blocklyToolboxDiv.classList.remove('blocklyToolboxDeleting');
+                pxt.BrowserUtils.removeClass(blocklyToolboxDiv, 'blocklyToolboxDeleting');
             }
         }
     }
@@ -1956,6 +2067,7 @@ namespace pxt.blocks {
         msg.RENAME_VARIABLE = lf("Rename variable...");
         msg.DELETE_VARIABLE = lf("Delete the \"%1\" variable");
         msg.DELETE_VARIABLE_CONFIRMATION = lf("Delete %1 uses of the \"%2\" variable?");
+        msg.NEW_VARIABLE_DROPDOWN = lf("New variable...");
 
         // builtin variables_set
         const variablesSetId = "variables_set";
@@ -1996,6 +2108,9 @@ namespace pxt.blocks {
 
         // New variable dialog
         msg.NEW_VARIABLE_TITLE = lf("New variable name:");
+
+        // Rename variable dialog
+        msg.RENAME_VARIABLE_TITLE = lf("Rename all '%1' variables to:");
     }
 
     function initFunctions() {
@@ -2047,7 +2162,6 @@ namespace pxt.blocks {
         Blockly.Blocks['procedures_callnoreturn'] = {
             init: function () {
                 let nameField = new pxtblockly.FieldProcedure('');
-                nameField.setSourceBlock(this);
                 this.appendDummyInput('TOPROW')
                     .appendField(proceduresCallDef.block['PROCEDURES_CALLNORETURN_TITLE'])
                     .appendField(nameField, 'NAME');
@@ -2300,41 +2414,49 @@ namespace pxt.blocks {
             return xmlList;
         }
 
+        // Patch new functions flyout to add the heading
+        const oldFlyout = Blockly.Functions.flyoutCategory;
+        Blockly.Functions.flyoutCategory = (workspace) => {
+            const elems = oldFlyout(workspace);
+            const headingLabel = createFlyoutHeadingLabel(lf("Functions"),
+                pxt.toolbox.getNamespaceColor('functions'),
+                pxt.toolbox.getNamespaceIcon('functions'),
+                'blocklyFlyoutIconfunctions');
+            elems.unshift(headingLabel);
+            return elems;
+        };
+
+        // Configure function editor argument icons
+        const iconsMap: pxt.Map<string> = {
+            number: pxt.blocks.defaultIconForArgType("number"),
+            boolean: pxt.blocks.defaultIconForArgType("boolean"),
+            string: pxt.blocks.defaultIconForArgType("string")
+        };
+        const customNames: pxsim.Map<string> = {};
+
         const functionOptions = pxt.appTarget.runtime && pxt.appTarget.runtime.functionsOptions;
-        if (functionOptions) {
-            if (functionOptions.useNewFunctions) {
-                // Patch new functions flyout to add the heading
-                const oldFlyout = Blockly.Functions.flyoutCategory;
-                Blockly.Functions.flyoutCategory = (workspace) => {
-                    const elems = oldFlyout(workspace);
-                    const headingLabel = createFlyoutHeadingLabel(lf("Functions"),
-                        pxt.toolbox.getNamespaceColor('functions'),
-                        pxt.toolbox.getNamespaceIcon('functions'),
-                        'blocklyFlyoutIconfunctions');
-                    elems.unshift(headingLabel);
-                    return elems;
-                };
-            }
+        if (functionOptions && functionOptions.extraFunctionEditorTypes) {
+            functionOptions.extraFunctionEditorTypes.forEach(t => {
+                iconsMap[t.typeName] = t.icon || pxt.blocks.defaultIconForArgType();
 
-            // Configure function editor argument icons
-            const iconsMap: pxt.Map<string> = {
-                number: pxt.blocks.defaultIconForArgType("number"),
-                boolean: pxt.blocks.defaultIconForArgType("boolean"),
-                string: pxt.blocks.defaultIconForArgType("string")
+                if (t.defaultName) {
+                    customNames[t.typeName] = t.defaultName;
+                }
+            });
+        }
+        Blockly.PXTBlockly.FunctionUtils.argumentIcons = iconsMap;
+        Blockly.PXTBlockly.FunctionUtils.argumentDefaultNames = customNames;
+
+        if (Blockly.Blocks["argument_reporter_custom"]) {
+            // The logic for setting the output check relies on the internals of PXT
+            // too much to be refactored into pxt-blockly, so we need to monkey patch
+            // it here
+            Blockly.Blocks["argument_reporter_custom"].domToMutation = function(xmlElement: Element) {
+                const typeName = xmlElement.getAttribute('typename');
+                this.typeName_ = typeName;
+
+                setOutputCheck(this, typeName, cachedBlockInfo);
             };
-            const customNames: pxsim.Map<string> = {};
-
-            if (functionOptions.extraFunctionEditorTypes) {
-                functionOptions.extraFunctionEditorTypes.forEach(t => {
-                    iconsMap[t.typeName] = t.icon || pxt.blocks.defaultIconForArgType();
-
-                    if (t.defaultName) {
-                        customNames[t.typeName] = t.defaultName;
-                    }
-                });
-            }
-            Blockly.PXTBlockly.FunctionUtils.argumentIcons = iconsMap;
-            Blockly.PXTBlockly.FunctionUtils.argumentDefaultNames = customNames;
         }
     }
 
@@ -2460,7 +2582,7 @@ namespace pxt.blocks {
         Blockly.Msg.WORKSPACE_COMMENT_DEFAULT_TEXT = '';
     }
 
-    function initTooltip(blockInfo: pxtc.BlocksInfo) {
+    function initTooltip() {
 
         const renderTip = (el: any) => {
             if (el.disabled)
@@ -2643,7 +2765,7 @@ namespace pxt.blocks {
     }
 
     function getEnumDropdownValues(apis: pxtc.ApisInfo, enumName: string) {
-        return pxt.Util.values(apis.byQName).filter(sym => sym.namespace === enumName);
+        return pxt.Util.values(apis.byQName).filter(sym => sym.namespace === enumName && !sym.attributes.blockHidden);
     }
 
     export function getFixedInstanceDropdownValues(apis: pxtc.ApisInfo, qName: string) {

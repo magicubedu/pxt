@@ -52,6 +52,7 @@ function setupTest(taskName, testFolder, testFile) {
         "node_modules/typescript/lib/typescript.js",
         "built/pxtlib.js",
         "built/pxtcompiler.js",
+        "built/pxtpy.js",
         "built/pxtsim.js",
         "built/tests/" + testFolder + "/" + testFile,
     ],
@@ -95,6 +96,8 @@ setupTest('testdecompiler', 'decompile-test', 'decompilerunner.js')
 setupTest('testlang', 'compile-test', 'compilerunner.js')
 setupTest('testerr', 'errors-test', 'errorrunner.js')
 setupTest('testfmt', 'format-test', 'formatrunner.js')
+setupTest('testpydecompiler', 'pydecompile-test', 'pydecompilerunner.js')
+setupTest('testtraces', 'runtime-trace-tests', 'tracerunner.js')
 
 
 task('testpkgconflicts', ['built/pxt.js'], { async: true }, function () {
@@ -105,6 +108,7 @@ ju.catFiles('built/pxt.js', [
     "node_modules/typescript/lib/typescript.js",
     "built/pxtlib.js",
     "built/pxtcompiler.js",
+    "built/pxtpy.js",
     "built/pxtsim.js",
     "built/cli.js"
 ],
@@ -136,15 +140,27 @@ file('built/pxt-common.json', expand(['libs/pxt-common'], ".ts"), function () {
     fs.writeFileSync(this.name, JSON.stringify(std, null, 4))
 })
 
+if (!fs.existsSync("webapp/public/blockly")) fs.mkdirSync("webapp/public/blockly");
+if (!fs.existsSync("webapp/public/blockly/msg")) fs.mkdirSync("webapp/public/blockly/msg");
+if (!fs.existsSync("webapp/public/blockly/msg/js")) fs.mkdirSync("webapp/public/blockly/msg/js");
+if (!fs.existsSync("webapp/public/blockly/msg/json")) fs.mkdirSync("webapp/public/blockly/msg/json");
+
+jake.cpR('node_modules/pxt-blockly/blocks_compressed.js', 'webapp/public/blockly/');
+jake.cpR('node_modules/pxt-blockly/blockly_compressed.js', 'webapp/public/blockly/');
+jake.cpR('node_modules/pxt-blockly/msg/js/en.js', 'webapp/public/blockly/msg/js/');
+jake.cpR('node_modules/pxt-blockly/msg/json/en.json', 'webapp/public/blockly/msg/json/');
+jake.cpR('node_modules/pxt-blockly/media', 'webapp/public/blockly/');
+
 compileDir("pxtlib", "built/typescriptServices.d.ts")
 compileDir("pxtcompiler", ["built/pxtlib.js"])
+compileDir("pxtpy", ["built/pxtcompiler.js"])
 compileDir("pxtwinrt", ["built/pxtlib.js"])
 compileDir("pxtblocks", ["built/pxtlib.js", "built/pxtsim.js", "built/pxtcompiler.js"])
 ju.catFiles("built/pxtblockly.js", expand(["webapp/public/blockly/blockly_compressed.js", "webapp/public/blockly/blocks_compressed.js", "webapp/public/blockly/msg/js/en.js", "built/pxtblocks.js"]), "")
 compileDir("pxtrunner", ["built/pxtlib.js", "built/pxteditor.js", "built/pxtcompiler.js", "built/pxtsim.js", "built/pxtblockly.js"])
 compileDir("pxtsim", ["built/pxtlib.js"])
 compileDir("pxteditor", ["built/pxtlib.js", "built/pxtblockly.js"])
-compileDir("cli", ["built/pxtlib.js", "built/pxtsim.js", "built/pxtcompiler.js"])
+compileDir("cli", ["built/pxtlib.js", "built/pxtsim.js", "built/pxtcompiler.js", "built/pxtpy.js"])
 compileDir("backendutils", ['pxtlib/commonutil.ts', 'pxtlib/docsrender.ts'])
 file("built/web/pxtweb.js", expand(["docfiles/pxtweb"]), { async: true }, function () { tscIn(this, "docfiles/pxtweb", "built") })
 
@@ -187,6 +203,7 @@ task("lint", [], { async: true }, function () {
         "pxteditor",
         "pxtlib",
         "pxtcompiler",
+        "pxtpy",
         "pxtrunner",
         "pxtsim",
         "pxtwinrt",
@@ -282,6 +299,7 @@ file('built/localization.json', ju.expand1(
 task('wapp', [
     "built/web/pxtlib.js",
     "built/web/pxtcompiler.js",
+    "built/web/pxtpy.js",
     "built/web/pxtsim.js",
     "built/web/pxtblockly.js",
     "built/web/pxteditor.js",
@@ -302,6 +320,7 @@ task('wapp', [
 file("built/web/pxtlib.js", [
     "built/pxtlib.js",
     "built/pxtcompiler.js",
+    "built/pxtpy.js",
     "built/pxtblockly.js",
     "built/pxtsim.js",
     "built/pxtrunner.js",
@@ -315,6 +334,7 @@ file("built/web/pxtlib.js", [
 
     jake.cpR("built/pxtlib.js", "built/web/")
     jake.cpR("built/pxtcompiler.js", "built/web/")
+    jake.cpR("built/pxtpy.js", "built/web/")
     jake.cpR("built/pxtblocks.js", "built/web/")
     jake.cpR("built/pxtblockly.js", "built/web/")
     jake.cpR("built/pxtsim.js", "built/web/")
@@ -410,6 +430,8 @@ file('built/web/vs/editor/editor.main.js', ['node_modules/pxt-monaco-typescript/
     jake.mkdirP("webapp/public/vs/basic-languages/src")
     jake.cpR("node_modules/monaco-editor/min/vs/basic-languages/src/bat.js", "webapp/public/vs/basic-languages/src/")
     jake.cpR("node_modules/monaco-editor/min/vs/basic-languages/src/cpp.js", "webapp/public/vs/basic-languages/src/")
+    jake.cpR("node_modules/monaco-editor/min/vs/basic-languages/src/markdown.js", "webapp/public/vs/basic-languages/src/")
+    jake.cpR("node_modules/monaco-editor/min/vs/basic-languages/src/python.js", "webapp/public/vs/basic-languages/src/")
     jake.mkdirP("webapp/public/vs/language/json")
     jake.cpR("node_modules/monaco-editor/min/vs/language/json/", "webapp/public/vs/language/")
 
@@ -463,7 +485,8 @@ ju.catFiles('built/web/pxtworker.js', [
     "node_modules/fuse.js/dist/fuse.min.js",
     "node_modules/lzma/src/lzma_worker-min.js",
     "built/web/pxtlib.js",
-    "built/web/pxtcompiler.js"
+    "built/web/pxtcompiler.js",
+    "built/web/pxtpy.js"
 ], `"use strict";`, ["built/webapp/src/app.js"]);
 
 ju.catFiles('built/web/pxtembed.js', [
@@ -471,6 +494,7 @@ ju.catFiles('built/web/pxtembed.js', [
     "node_modules/lzma/src/lzma_worker-min.js",
     "built/web/pxtlib.js",
     "built/web/pxtcompiler.js",
+    "built/web/pxtpy.js",
     "built/web/pxtblockly.js",
     "built/web/pxteditor.js",
     "built/web/pxtsim.js",
@@ -511,7 +535,8 @@ file('built/web/icons.css', expand(["svgicons"]), { async: true }, function () {
             function: 0xf109,
             bucket: 0xf102,
             undo: 0xf118,
-            redo: 0xf111
+            redo: 0xf111,
+            rectangularselection: 0xf113
         },
         writeFiles: false,
     }, function (error, res) {
@@ -557,5 +582,4 @@ ju.catFiles("built/web/semantic.js",
 file('docs/playground.html', ['built/web/pxtworker.js', 'built/web/pxtblockly.js', 'built/web/semantic.css'], function () {
     jake.cpR("libs/pxt-common/pxt-core.d.ts", "docs/static/playground/pxt-common/pxt-core.d.js");
     jake.cpR("libs/pxt-common/pxt-helpers.ts", "docs/static/playground/pxt-common/pxt-helpers.js");
-    jake.cpR("webapp/public/blockly/media/", "docs/static/playground/blockly/");
 })

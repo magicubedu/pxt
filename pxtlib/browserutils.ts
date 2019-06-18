@@ -128,7 +128,8 @@ namespace pxt.BrowserUtils {
 
     export function isLocalHost(): boolean {
         try {
-            return /^http:\/\/(localhost|127\.0\.0\.1):\d+\//.test(window.location.href)
+            return typeof window !== "undefined"
+                && /^http:\/\/(localhost|127\.0\.0\.1):\d+\//.test(window.location.href)
                 && !/nolocalhost=1/.test(window.location.href)
                 && !(pxt.webConfig && pxt.webConfig.isStatic);
         } catch (e) { return false; }
@@ -518,7 +519,7 @@ namespace pxt.BrowserUtils {
         // RTL languages
         if (Util.isUserLanguageRtl()) {
             pxt.debug("rtl layout");
-            document.body.classList.add("rtl");
+            pxt.BrowserUtils.addClass(document.body, "rtl");
             document.body.style.direction = "rtl";
 
             // replace semantic.css with rtlsemantic.css
@@ -915,27 +916,34 @@ namespace pxt.BrowserUtils {
         leave: string
     }
 
-    export const pointerEvents: IPointerEvents = hasPointerEvents() ? {
-        up: "pointerup",
-        down: ["pointerdown"],
-        move: "pointermove",
-        enter: "pointerenter",
-        leave: "pointerleave"
-    } : isTouchEnabled() ?
-            {
+    export const pointerEvents: IPointerEvents = (() => {
+        if (hasPointerEvents()) {
+            return {
+                up: "pointerup",
+                down: ["pointerdown"],
+                move: "pointermove",
+                enter: "pointerenter",
+                leave: "pointerleave"
+            }
+        } else if (isTouchEnabled()) {
+            return {
                 up: "mouseup",
                 down: ["mousedown", "touchstart"],
                 move: "touchmove",
                 enter: "touchenter",
                 leave: "touchend"
-            } :
-            {
+            }
+        } else {
+            return {
                 up: "mouseup",
                 down: ["mousedown"],
                 move: "mousemove",
                 enter: "mouseenter",
                 leave: "mouseleave"
-            };
+            }
+        }
+    })();
+
     export function popupWindow(url: string, title: string, popUpWidth: number, popUpHeight: number) {
         try {
             const winLeft = window.screenLeft ? window.screenLeft : window.screenX;
@@ -955,6 +963,50 @@ namespace pxt.BrowserUtils {
             // Error opening popup
             pxt.tickEvent('pxt.popupError', { url: url, msg: e.message });
             return null;
+        }
+    }
+
+    // Keep these helpers unified with pxtsim/runtime.ts
+    export function containsClass(el: SVGElement | HTMLElement, cls: string) {
+        if (el.classList) {
+            return el.classList.contains(cls);
+        } else {
+            const classes = (el.className + "").split(/\s+/) as string[];
+            return !(classes.indexOf(cls) < 0)
+        }
+    }
+
+    export function addClass(el: SVGElement | HTMLElement, classes: string) {
+        classes
+            .split(/\s+/)
+            .forEach(cls => addSingleClass(el, cls));
+
+        function addSingleClass(el: SVGElement | HTMLElement, cls: string) {
+            if (el.classList) {
+                el.classList.add(cls);
+            } else {
+                const classes = (el.className + "").split(/\s+/) as string[];
+                if (classes.indexOf(cls) < 0) {
+                    el.className.baseVal += " " + cls;
+                }
+            }
+        }
+    }
+
+    export function removeClass(el: SVGElement | HTMLElement, classes: string) {
+        classes
+            .split(/\s+/)
+            .forEach(cls => removeSingleClass(el, cls));
+
+        function removeSingleClass(el: SVGElement | HTMLElement, cls: string) {
+            if (el.classList) {
+                el.classList.remove(cls);
+            } else {
+                el.className.baseVal = (el.className + "")
+                    .split(/\s+/)
+                    .filter(c => c != cls)
+                    .join(" ");
+            }
         }
     }
 }

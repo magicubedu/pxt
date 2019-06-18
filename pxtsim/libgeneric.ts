@@ -3,9 +3,6 @@ namespace pxsim {
     // user-defined record, another collection)
     export class RefCollection extends RefObject {
         private data: any[] = [];
-        //undefiend or null values need to be handled specially to support default values
-        //default values of boolean, string, number & object arrays are respectively, false, null, 0, null
-        //All of the default values are implemented by mapping undefined\null to zero.
 
         constructor() {
             super();
@@ -24,10 +21,15 @@ namespace pxsim {
             for (let i = 0; i < this.data.length; ++i) {
                 if (i > 0)
                     s += ",";
-                s += RefObject.toDebugString(this.data[i]);
-                if (s.length > 15) {
+                let newElem = RefObject.toDebugString(this.data[i]);
+                if (s.length + newElem.length > 100) {
+                    if (i == 0) {
+                        s += newElem.substr(0, 100);
+                    }
                     s += "..."
                     break;
+                } else {
+                    s += newElem;
                 }
             }
             s += "]"
@@ -52,11 +54,7 @@ namespace pxsim {
         }
 
         pop() {
-            let x = this.data.pop();
-            if (x == undefined) { //treat null & undefined as the same
-                return 0;
-            }
-            return x;
+            return this.data.pop();;
         }
 
         getLength() {
@@ -68,10 +66,7 @@ namespace pxsim {
         }
 
         getAt(x: number) {
-            if (this.data[x] != undefined) {
-                return this.data[x];
-            }
-            return 0;
+            return this.data[x];
         }
 
         setAt(x: number, y: any) {
@@ -84,30 +79,11 @@ namespace pxsim {
 
         removeAt(x: number) {
             let ret = this.data.splice(x, 1)
-            if (ret[0] == undefined) {
-                return 0;
-            }
-            return ret[0]; //return the deleted element.
+            return ret[0]; // return the deleted element.
         }
 
         indexOf(x: number, start: number) {
-            if (x != 0) {
-                return this.data.indexOf(x, start);
-            }
-            //As we treat undefined same as 0 which is default value for all the arrays, will need to search both.
-            let defaultValueIndex = this.data.indexOf(x, start);
-            let undefinedIndex = -1;
-            for (let i = start; i < this.data.length; i++) {
-                if (this.data[i] == undefined) {
-                    undefinedIndex = i;
-                    break;
-                }
-            }
-
-            if (defaultValueIndex < undefinedIndex || undefinedIndex == -1) {
-                return defaultValueIndex;
-            }
-            return undefinedIndex;
+            return this.data.indexOf(x, start);
         }
 
         print() {
@@ -383,10 +359,6 @@ namespace pxsim {
             return s.length
         }
 
-        export function isEmpty(s: string): boolean {
-            return s == null || s.length == 0;
-        }
-
         export function substr(s: string, start: number, length?: number) {
             return initString(s.substr(start, length));
         }
@@ -571,12 +543,21 @@ namespace pxsim {
         }
 
         function inRange(buf: RefBuffer, off: number) {
+            pxtrt.nullCheck(buf)
             return 0 <= off && off < buf.data.length
+        }
+
+        export function getUint8(buf: RefBuffer, off: number) {
+            return getByte(buf, off);
         }
 
         export function getByte(buf: RefBuffer, off: number) {
             if (inRange(buf, off)) return buf.data[off]
             else return 0;
+        }
+
+        export function setUint8(buf: RefBuffer, off: number, v: number) {
+            setByte(buf, off, v);
         }
 
         export function setByte(buf: RefBuffer, off: number, v: number) {

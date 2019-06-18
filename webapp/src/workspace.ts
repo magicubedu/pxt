@@ -290,7 +290,7 @@ export function saveAsync(h: Header, text?: ScriptText, isCloud?: boolean): Prom
 
     // check if we have dynamic boards, store board info for home page rendering
     if (text && pxt.appTarget.simulator && pxt.appTarget.simulator.dynamicBoardDefinition) {
-        const pxtjson = JSON.parse(text["pxt.json"] || "{}") as pxt.PackageConfig;
+        const pxtjson = ts.pxtc.Util.jsonTryParse(text["pxt.json"]) as pxt.PackageConfig;
         if (pxtjson && pxtjson.dependencies)
             h.board = Object.keys(pxtjson.dependencies)
                 .filter(p => !!pxt.bundledSvg(p))[0];
@@ -346,6 +346,10 @@ export function installAsync(h0: InstallHeader, text: ScriptText) {
     h.id = ts.pxtc.Util.guidGen();
     h.recentUse = U.nowSeconds()
     h.modificationTime = h.recentUse;
+
+    const cfg: pxt.PackageConfig = JSON.parse(text[pxt.CONFIG_NAME] || "{}")
+    if (cfg.preferredEditor)
+        h.editor = cfg.preferredEditor
 
     return importAsync(h, text)
         .then(() => h)
@@ -621,14 +625,21 @@ export async function recomputeHeaderFlagsAsync(h: Header, files: ScriptText) {
     h.githubCurrent = true
 }
 
-export async function initializeGithubRepoAsync(hd: Header, repoid: string) {
+export async function initializeGithubRepoAsync(hd: Header, repoid: string, addDefaultFiles?: boolean) {
     let parsed = pxt.github.parseRepoId(repoid)
     let name = parsed.fullName.replace(/.*\//, "")
-    let files = pxt.packageFiles(name)
+    let files = pxt.packageFiles(name);
     pxt.packageFilesFixup(files, true)
 
-    let currFiles = await getTextAsync(hd.id)
-    U.jsonMergeFrom(currFiles, files)
+    let currFiles = await getTextAsync(hd.id);
+
+    if (addDefaultFiles) {
+        const initFiles = pxt.packageFiles(parsed.fullName.replace('/', '-'));
+        pxt.packageFilesFixup(initFiles);
+        U.jsonMergeFrom(currFiles, initFiles);
+    }
+
+    U.jsonMergeFrom(currFiles, files);
 
     await saveAsync(hd, currFiles)
     await commitAsync(hd, "Auto-initialized.", "", Object.keys(currFiles))
@@ -657,8 +668,9 @@ export async function importGithubAsync(id: string) {
         sha = await pxt.github.getRefAsync(parsed.fullName, parsed.tag)
     } catch (e) {
         if (e.statusCode == 409) {
-            // this means repo is completely empty; put something in there
-            await pxt.github.putFileAsync(parsed.fullName, ".gitignore", "# Initial\n")
+            // this means repo is completely empty; 
+            // put all default files in there
+            await pxt.github.putFileAsync(parsed.fullName, ".gitignore", "# Initial\n");
             isEmpty = true
             sha = await pxt.github.getRefAsync(parsed.fullName, parsed.tag)
         }
@@ -668,7 +680,7 @@ export async function importGithubAsync(id: string) {
     return await githubUpdateToAsync(null, repoid, sha, {})
         .then(hd => {
             if (isEmpty)
-                return initializeGithubRepoAsync(hd, repoid)
+                return initializeGithubRepoAsync(hd, repoid, true);
             return hd
         })
 }

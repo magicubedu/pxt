@@ -89,7 +89,7 @@ namespace ts.pxtc {
             jssource += vtableToJs(info)
         })
         if (bin.res.breakpoints)
-            jssource += `\nsetupDebugger(${bin.res.breakpoints.length})\n`
+            jssource += `\nsetupDebugger(${bin.res.breakpoints.length}, [${bin.globals.filter(c => c.isUserVariable).map(c => `"${c.uniqueName()}"`).join(",")}])\n`
         U.iterMap(bin.hexlits, (k, v) => {
             jssource += `var ${v} = pxsim.BufferMethods.createBufferFromHex("${k}")\n`
         })
@@ -197,6 +197,8 @@ switch (step) {
         writeRaw(`} } }`)
         let info = nodeLocationInfo(proc.action) as FunctionLocationInfo
         info.functionName = proc.getName()
+        info.argumentNames = proc.args && proc.args.map(a => a.getName());
+
         writeRaw(`${proc.label()}.info = ${JSON.stringify(info)}`)
         if (proc.isRoot)
             writeRaw(`${proc.label()}.continuations = [ ${asyncContinuations.join(",")} ]`)
@@ -246,8 +248,6 @@ switch (step) {
                 if (jmp.expr)
                     emitExpr(jmp.expr)
                 write(trg)
-            } else if (jmp.jmpMode == ir.JmpMode.IfJmpValEq) {
-                write(`if (r0 == (${emitExprInto(jmp.expr)})) ${trg}`)
             } else {
                 emitExpr(jmp.expr)
                 if (jmp.jmpMode == ir.JmpMode.IfNotZero) {
@@ -256,10 +256,6 @@ switch (step) {
                     write(`if (!r0) ${trg}`)
                 }
             }
-        }
-
-        function withRef(name: string, isRef: boolean) {
-            return name + (isRef ? "Ref" : "")
         }
 
         function emitExprInto(e: ir.Expr): string {

@@ -148,6 +148,23 @@ namespace pxt.blocks {
     }
 
     /**
+     * Patch to transform old function blocks to new ones, and rename child nodes
+     */
+    function patchFunctionBlocks(dom: Element, info: pxtc.BlocksInfo) {
+        let functionNodes = pxt.U.toArray(dom.querySelectorAll("block[type=procedures_defnoreturn]"));
+        functionNodes.forEach(node => {
+            node.setAttribute("type", "function_definition");
+            node.querySelector("field[name=NAME]").setAttribute("name", "function_name");
+        })
+
+        let functionCallNodes = pxt.U.toArray(dom.querySelectorAll("block[type=procedures_callnoreturn]"));
+        functionCallNodes.forEach(node => {
+            node.setAttribute("type", "function_call");
+            node.querySelector("field[name=NAME]").setAttribute("name", "function_name");
+        })
+    }
+
+    /**
      * This callback is populated from the editor extension result.
      * Allows a target to provide version specific blockly updates
      */
@@ -187,6 +204,15 @@ namespace pxt.blocks {
                                 pxt.debug(`patched block value ${k} -> ${up.map[k]}`);
                             });
                     }))
+
+                // patch enum variables
+                upgrades.filter(up => up.type == "userenum")
+                    .forEach(up => Object.keys(up.map).forEach(k => {
+                        getChildrenWithAttr(doc, "variable", "type", k).forEach(el => {
+                            el.setAttribute("type", up.map[k]);
+                            pxt.debug(`patched enum variable type ${k} -> ${up.map[k]}`);
+                        })
+                    }));
             }
 
             // build upgrade map
@@ -205,6 +231,9 @@ namespace pxt.blocks {
 
             // patch floating blocks
             patchFloatingBlocks(doc.documentElement, info);
+
+            // patch function blocks
+            patchFunctionBlocks(doc.documentElement, info)
 
             // apply extension patches
             if (pxt.blocks.extensionBlocklyPatch)

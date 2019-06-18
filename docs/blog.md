@@ -1,5 +1,35 @@
 # Microsoft MakeCode Blog
 
+## [MakeCode for the micro:bit – 2019 Release](/blog/microbit/2019-release)
+ 
+June 15th, 2019 by [Jaqster](https://github.com/jaqster)
+
+It’s out! The 2019 MakeCode micro:bit update has been released!
+A BIG thanks to everyone who has been hammering on the Beta these past couple months to help us find bugs and come up with fixes. Unlike last year’s update...
+**[Continue reading this blog post](/blog/microbit/2019-release)**
+
+## [Project Alava: Programming Webs of Microcontrollers](/blog/alava/alava)
+
+April 26th, 2019 by [Tom Ball](https://www.microsoft.com/en-us/research/people/tball)
+
+As you know, the MakeCode team is primarily a bunch of web-heads who fell in love with
+microcontrollers. Since early 2016, we've been bringing web technology to the world of microcontrollers.
+**[Continue reading this blog post](/blog/alava/alava)**
+
+## [MakeCode for the micro:bit – 2019 Beta Release](/blog/microbit/2019-beta)
+ 
+April 5th, 2019 by [Jaqster](https://github.com/jaqster)
+
+Believe it or not, we are getting ready to ship the **Summer 2019 release** of **MakeCode for the micro:bit**! Thank you to everyone who helped us identify bugs and suggest new features.
+**[Continue reading this blog post](/blog/microbit/2019-beta)**
+
+## [Intro to CS with the micro:bit – free Educator Materials](/blog/microbit/csintro-educator)
+ 
+March 12th, 2019 by [Jaqster](https://github.com/jaqster)
+
+We've decided to supplement the curriculum by providing some additional Educator materials that would help new teachers learn and teach the course. We didn’t change the course at all, just added some extra materials, like...
+**[Continue reading this blog post](/blog/microbit/csintro-educator)**
+
 ## [MakeCode Arcade: Retro Gaming, Modern Programming](/blog/arcade/01-18-2019)
 
 January 18th, 2019 by Microsoft MakeCode Team

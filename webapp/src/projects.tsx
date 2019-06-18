@@ -5,7 +5,7 @@ import * as ReactDOM from "react-dom";
 import * as data from "./data";
 import * as sui from "./sui";
 import * as core from "./core";
-
+import * as discourse from "./discourse";
 import * as codecard from "./codecard"
 import * as carousel from "./carousel";
 import { showAboutDialogAsync, showCloudSignInDialog } from "./dialogs";
@@ -289,7 +289,7 @@ export class ProjectsCarousel extends data.Component<ProjectsCarouselProps, Proj
     private hasFetchErrors = false;
     private latestProject: codecard.CodeCardView;
 
-    private static NUM_PROJECTS_HOMESCREEN = 10;
+    private static NUM_PROJECTS_HOMESCREEN = 8;
 
     constructor(props: ProjectsCarouselProps) {
         super(props)
@@ -417,6 +417,8 @@ export class ProjectsCarousel extends data.Component<ProjectsCarouselProps, Proj
                                 scr={scr} index={index}
                                 onCardClick={this.handleCardClick}
                                 cardType={scr.cardType}
+                                tutorialStep={scr.tutorialStep}
+                                tutorialLength={scr.tutorialLength}
                             />
                         )}
                     </carousel.Carousel>
@@ -457,6 +459,14 @@ export class ProjectsCarousel extends data.Component<ProjectsCarouselProps, Proj
                 </div> : undefined}
                 {headers.slice(0, ProjectsCarousel.NUM_PROJECTS_HOMESCREEN).map((scr, index) => {
                     const boardsvg = pxt.bundledSvg(scr.board);
+                    const tutorialStep =
+                        scr.tutorial ? scr.tutorial.tutorialStep
+                            : scr.tutorialCompleted ? scr.tutorialCompleted.steps - 1
+                                : undefined;
+                    const tutoriallength =
+                        scr.tutorial ? scr.tutorial.tutorialStepInfo.length
+                            : scr.tutorialCompleted ? scr.tutorialCompleted.steps
+                                : undefined;
                     return <ProjectsCodeCard
                         key={'local' + scr.id + scr.recentUse}
                         // ref={(view) => { if (index === 1) this.latestProject = view }}
@@ -468,6 +478,8 @@ export class ProjectsCarousel extends data.Component<ProjectsCarouselProps, Proj
                         url={scr.pubId && scr.pubCurrent ? "/" + scr.pubId : ""}
                         scr={scr} index={index}
                         onCardClick={this.handleCardClick}
+                        tutorialStep={tutorialStep}
+                        tutorialLength={tutoriallength}
                     />;
                 })}
                 {showScriptManagerCard ? <div role="button" className="ui card link buttoncard scriptmanagercard" title={lf("See all projects")}
@@ -527,8 +539,8 @@ export interface ProjectsDetailProps extends ISettingsProps {
 }
 
 export interface ProjectsDetailState {
-
 }
+
 
 export class ProjectsDetail extends data.Component<ProjectsDetailProps, ProjectsDetailState> {
 
@@ -538,11 +550,26 @@ export class ProjectsDetail extends data.Component<ProjectsDetailProps, Projects
         }
 
         this.handleDetailClick = this.handleDetailClick.bind(this);
+        this.handleOpenForumUrlInEditor = this.handleOpenForumUrlInEditor.bind(this);
     }
 
     handleDetailClick() {
         const { scr, onClick } = this.props;
         onClick(scr);
+    }
+
+    handleOpenForumUrlInEditor() {
+        const { url } = this.props;
+        discourse.extractSharedIdFromPostUrl(url)
+            .then(projectId => {
+                // if we have a projectid, load it
+                if (projectId)
+                    window.location.hash = "pub:" + projectId; // triggers reload
+                else {
+                    core.warningNotification(lf("Oops, we could not find the program in the forum."));
+                }
+            })
+            .catch(core.handleNetworkError)
     }
 
     renderCore() {
@@ -556,6 +583,7 @@ export class ProjectsDetail extends data.Component<ProjectsDetailProps, Projects
             clickLabel = lf("Start Tutorial");
         }
         else if (cardType == "codeExample" || cardType == "example") clickLabel = lf("Open Example");
+        else if (cardType == "forumUrl") clickLabel = lf("Open in Forum");
         else if (cardType == "template") clickLabel = lf("New Project");
         else if (youTubeId) clickLabel = lf("Play Video");
 
@@ -566,7 +594,9 @@ export class ProjectsDetail extends data.Component<ProjectsDetailProps, Projects
             className: 'huge positive'
         }]
 
-        const isLink = !cardType && (youTubeId || url);
+        // featured link: featured_link
+        const isForum = cardType == "forumUrl" && url;
+        const isLink = isForum || (!isCodeCardType(cardType) && (youTubeId || url));
         const linkHref = (youTubeId && !url) ? `https://youtu.be/${youTubeId}` :
             ((/^https:\/\//i.test(url)) || (/^\//i.test(url)) ? url : '');
 
@@ -601,10 +631,34 @@ export class ProjectsDetail extends data.Component<ProjectsDetailProps, Projects
                                     onClick={action.onClick}
                                     onKeyDown={sui.fireClickOnEnter} />
                         )}
+                        {isForum && <sui.Button
+                            key="action_open"
+                            text={lf("Open in Editor")}
+                            className={`approve huge`}
+                            onClick={this.handleOpenForumUrlInEditor}
+                            onKeyDown={sui.fireClickOnEnter}
+                        />}
                     </div>
                 </div>
             </div>
         </div>;
+
+        function isCodeCardType(value: string): value is pxt.CodeCardType {
+            switch (value) {
+                case "file":
+                case "example":
+                case "codeExample":
+                case "tutorial":
+                case "side":
+                case "template":
+                case "package":
+                case "hw":
+                case "forumUrl":
+                    return true;
+                default:
+                    return false;
+            }
+        }
     }
 }
 
@@ -932,17 +986,6 @@ export class ChooseHwDialog extends data.Component<ISettingsProps, ChooseHwDialo
             >
                 <div className="group">
                     <div className="ui cards centered" role="listbox">
-                        {variants.map(cfg =>
-                            <codecard.CodeCardView
-                                key={'variant' + cfg.name}
-                                name={cfg.card.name}
-                                ariaLabel={cfg.card.name}
-                                description={cfg.card.description}
-                                imageUrl={cfg.card.imageUrl}
-                                learnMoreUrl={cfg.card.learnMoreUrl}
-                                onClick={cfg.card.onClick}
-                            />
-                        )}
                         {cards.map(card =>
                             <codecard.CodeCardView
                                 key={'card' + card.name}
@@ -952,6 +995,17 @@ export class ChooseHwDialog extends data.Component<ISettingsProps, ChooseHwDialo
                                 imageUrl={card.imageUrl}
                                 learnMoreUrl={card.url}
                                 onClick={card.onClick}
+                            />
+                        )}
+                        {variants.map(cfg =>
+                            <codecard.CodeCardView
+                                key={'variant' + cfg.name}
+                                name={cfg.card.name}
+                                ariaLabel={cfg.card.name}
+                                description={cfg.card.description}
+                                imageUrl={cfg.card.imageUrl}
+                                learnMoreUrl={cfg.card.learnMoreUrl}
+                                onClick={cfg.card.onClick}
                             />
                         )}
                     </div>

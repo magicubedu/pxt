@@ -85,7 +85,7 @@ function initializeDimmer() {
 
 let asyncLoadingTimeout: pxt.Map<number> = {};
 
-export function showLoadingAsync(id: string, msg: string, operation: Promise<any>, delay: number = 700) {
+export function showLoadingAsync(id: string, msg: string, operation: Promise<any>, delay: number = 700): Promise<void> {
     clearTimeout(asyncLoadingTimeout[id]);
     asyncLoadingTimeout[id] = setTimeout(function () {
         showLoading(id, msg);
@@ -154,7 +154,6 @@ export interface DialogOptions {
     header: string;
     body?: string;
     jsx?: JSX.Element;
-    htmlBody?: string;
     copyable?: string;
     size?: string; // defaults to "small"
     onLoaded?: (_: HTMLElement) => void;

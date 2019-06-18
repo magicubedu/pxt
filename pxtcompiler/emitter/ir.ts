@@ -162,8 +162,6 @@ namespace ts.pxtc.ir {
         Always = 1,
         IfZero,
         IfNotZero,
-        IfJmpValEq,
-        IfLambda
     }
 
     export class Stmt extends Node {
@@ -265,10 +263,6 @@ namespace ts.pxtc.ir {
                                 return `    if (! ${inner}) ${fin}`
                             case JmpMode.IfNotZero:
                                 return `    if (${inner}) ${fin}`
-                            case JmpMode.IfJmpValEq:
-                                return `    if (r0 == ${inner}) ${fin}`
-                            case JmpMode.IfLambda:
-                                return `    if (LAMBDA) return ${inner}`
                             default: throw oops();
                         }
                     case ir.SK.StackEmpty:
@@ -290,11 +284,20 @@ namespace ts.pxtc.ir {
         _isLocal = false;
         _isGlobal = false;
         _debugType = "?";
+        isUserVariable = false;
         bitSize = BitSize.None;
 
         constructor(public index: number, public def: Declaration, public info: VariableAddInfo) {
-            if (def && info) {
-                setCellProps(this)
+            if (def) {
+                const s = getSourceFileOfNode(def);
+                if (s && s.fileName) {
+                    if (!/^pxt_modules\//.test(s.fileName)) {
+                        this.isUserVariable = true
+                    }
+                }
+                if (info) {
+                    setCellProps(this)
+                }
             }
         }
 
@@ -479,7 +482,7 @@ namespace ts.pxtc.ir {
         }
 
         vtLabel() {
-            return this.label() + "_args"
+            return this.label() + (isStackMachine() ? "" : "_args")
         }
 
         label() {
@@ -846,6 +849,9 @@ namespace ts.pxtc.ir {
             complexArgs.push(a)
         }
         complexArgs.reverse()
+
+        if (isStackMachine())
+            complexArgs = []
 
         let precomp: ir.Expr[] = []
         let flattened = topExpr.args.map(a => {

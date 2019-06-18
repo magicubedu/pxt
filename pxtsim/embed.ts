@@ -31,6 +31,10 @@ namespace pxsim {
         mute: boolean;
     }
 
+    export interface SimulatorStopSoundMessage extends SimulatorMessage {
+        type: "stopsound";
+    }
+
     export interface SimulatorDocMessage extends SimulatorMessage {
         type: "localtoken" | "docfailed";
         docType?: string;
@@ -54,8 +58,9 @@ namespace pxsim {
         type: "toplevelcodefinished";
     }
 
-    export interface SimulatorDocsReadyMessage extends SimulatorMessage {
-        type: "popoutcomplete";
+    export interface SimulatorOpenDocMessage extends SimulatorMessage {
+        type: "opendoc";
+        url: string;
     }
 
     export interface SimulatorStateMessage extends SimulatorMessage {
@@ -143,6 +148,7 @@ namespace pxsim {
     export interface SimulatorRecorderMessage extends SimulatorMessage {
         type: "recorder";
         action: "start" | "stop";
+        width?: number;
     }
 
     export interface TutorialMessage extends SimulatorMessage {
@@ -222,9 +228,10 @@ namespace pxsim {
     }
 
     export namespace Embed {
+        export let frameid: string;
         export function start() {
             window.addEventListener("message", receiveMessage, false);
-            let frameid = window.location.hash.slice(1)
+            frameid = window.location.hash.slice(1)
             initAppcache();
             Runtime.postMessage(<SimulatorReadyMessage>{ type: 'ready', frameid: frameid });
         }
@@ -234,16 +241,17 @@ namespace pxsim {
             // TODO: test origins
 
             let data: SimulatorMessage = event.data || {};
-            let type = data.type || '';
+            let type = data.type;
             if (!type) return;
-            switch (type || '') {
+            switch (type) {
                 case "run": run(<SimulatorRunMessage>data); break;
                 case "instructions": pxsim.instructions.renderInstructions(<SimulatorInstructionsMessage>data); break;
                 case "stop": stop(); break;
                 case "mute": mute((<SimulatorMuteMessage>data).mute); break;
+                case "stopsound": stopSound(); break;
                 case "print": print(); break;
                 case 'recorder': recorder(<SimulatorRecorderMessage>data); break;
-                case "screenshot": Runtime.postScreenshotAsync().done(); break;
+                case "screenshot": Runtime.postScreenshotAsync(<SimulatorScreenshotMessage>data).done(); break;
                 case "custom":
                     if (handleCustomMessage)
                         handleCustomMessage((<SimulatorCustomMessage>data));
@@ -292,6 +300,10 @@ namespace pxsim {
             AudioContextManager.mute(mute);
         }
 
+        function stopSound() {
+            AudioContextManager.stopAll();
+        }
+
         function queue(msg: SimulatorMessage) {
             if (!runtime || runtime.dead) {
                 return;
@@ -303,7 +315,7 @@ namespace pxsim {
             if (!runtime) return;
             switch (rec.action) {
                 case "start":
-                    runtime.startRecording();
+                    runtime.startRecording(rec.width);
                     break;
                 case "stop":
                     runtime.stopRecording();

@@ -22,11 +22,25 @@ export interface SpawnOptions {
     input?: string;
     silent?: boolean;
     envOverrides?: pxt.Map<string>;
+    allowNonZeroExit?: boolean;
 }
 
 //This should be correct at startup when running from command line
 export let targetDir: string = process.cwd();
 export let pxtCoreDir: string = path.join(__dirname, "..");
+
+export let cliFinalizers: (() => Promise<void>)[] = [];
+
+export function addCliFinalizer(f: () => Promise<void>) {
+    cliFinalizers.push(f)
+}
+
+export function runCliFinalizersAsync() {
+    let fins = cliFinalizers
+    cliFinalizers = []
+    return Promise.mapSeries(fins, f => f())
+        .then(() => { })
+}
 
 export function setTargetDir(dir: string) {
     targetDir = dir;
@@ -76,7 +90,7 @@ export function spawnWithPipeAsync(opts: SpawnOptions) {
                 }
             })
         ch.on('close', (code: number) => {
-            if (code != 0)
+            if (code != 0 && !opts.allowNonZeroExit)
                 reject(new Error("Exit code: " + code + " from " + info))
             resolve(Buffer.concat(bufs))
         });
@@ -278,7 +292,9 @@ export function readPkgConfig(dir: string) {
 
     const ap = js.additionalFilePath
     if (ap) {
-        const adddir = path.join(dir, ap)
+        let adddir = path.join(dir, ap);
+        if (!existsDirSync(adddir))
+            pxt.U.userError(`additional pxt.json not found: ${adddir} in ${dir} + ${ap}`)
         pxt.debug("additional pxt.json: " + adddir)
         const js2 = readPkgConfig(adddir)
         for (let k of Object.keys(js2)) {
