@@ -1222,8 +1222,18 @@ namespace pxt.blocks {
         };
     }
 
-    export let onShowContextMenu: (workspace: Blockly.Workspace,
-        items: Blockly.ContextMenu.MenuItem[]) => void = undefined;
+    // tslint:disable-next-line:no-var-keyword
+    export var onShowContextMenu: (workspace: Blockly.Workspace,
+        items: Blockly.ContextMenu.MenuItem[]) => void = onShowContextMenu !== undefined ? onShowContextMenu : undefined;
+
+    export interface BlockContent {
+        ts?: string;
+        blocks?: string;
+    }
+    // tslint:disable-next-line:no-var-keyword
+    export var blockCopyHandler: (content: BlockContent) => void = blockCopyHandler !== undefined ? blockCopyHandler : undefined;
+    // tslint:disable-next-line:no-var-keyword
+    export var blockPasteHandler: (pasteToMakeCode: ((content: BlockContent) => Promise<void>)) => void = blockPasteHandler !== undefined ? blockPasteHandler : undefined;
 
     /**
      * The following patch to blockly is to add the Trash icon on top of the toolbox,
@@ -1307,6 +1317,65 @@ namespace pxt.blocks {
         (<any>Blockly).BlockSvg.prototype.showHelp_ = function () {
             const url = goog.isFunction(this.helpUrl) ? this.helpUrl() : this.helpUrl;
             if (url) (pxt.blocks.openHelpUrl || window.open)(url);
+        };
+
+        /**
+         * Show the context menu for this block.
+         * @param {!Event} e Mouse event.
+         * @private
+         */
+        Blockly.BlockSvg.prototype.showContextMenu_ = function(e) {
+            if (!this.contextMenu) {
+                return;
+            }
+            // Save the current block in a variable for use in closures.
+            const block = this;
+            let menuOptions: Blockly.ContextMenu.MenuItem[] = [];
+
+            if (blockCopyHandler !== undefined) {
+                menuOptions.push({
+                    text: lf("Export"),
+                    enabled: true,
+                    callback: async () => {
+                        const xmlRoot = document.createElementNS("http://www.w3.org/1999/xhtml", "xml");
+                        xmlRoot.appendChild(Blockly.Xml.blockToDom(block, true));
+                        xmlRoot.querySelectorAll("*").forEach(element => {
+                            element.removeAttribute("deletable");
+                            element.removeAttribute("movable");
+                            element.removeAttribute("editable");
+                            element.removeAttribute("id");
+                        });
+                        xmlRoot.querySelectorAll("comment").forEach(element => {
+                            element.removeAttribute("h");
+                            element.removeAttribute("w");
+                        });
+                        blockCopyHandler({
+                            blocks: Blockly.Xml.domToText(xmlRoot)
+                        });
+                    }
+                });
+            }
+
+            if (!this.workspace.options.readOnly) {
+                if (this.isDeletable() && this.isMovable() && !block.isInFlyout) {
+                    menuOptions.push(Blockly.ContextMenu.blockDuplicateOption(block));
+                    if (this.isEditable() && this.workspace.options.comments) {
+                        menuOptions.push(Blockly.ContextMenu.blockCommentOption(block));
+                    }
+                    menuOptions.push((Blockly.ContextMenu as any).blockDeleteOption(block));
+                } else if (this.parentBlock_ && this.isShadow_) {
+                    this.parentBlock_.showContextMenu_(e);
+                    return;
+                }
+
+                // Allow the block to add or modify menuOptions.
+                if (this.customContextMenu) {
+                    this.customContextMenu(menuOptions);
+                }
+
+                Blockly.ContextMenu.show(e, menuOptions, this.RTL);
+                Blockly.ContextMenu.currentBlock = this;
+            }
         };
 
         /**
@@ -1401,6 +1470,27 @@ namespace pxt.blocks {
                     }
                 };
                 menuOptions.push(screenshotOption);
+            }
+
+            if (blockPasteHandler !== undefined) {
+                menuOptions.push({
+                    text: lf("Import"),
+                    enabled: true,
+                    callback: () => {
+                        blockPasteHandler(content => new Promise(async (resolve, reject) => {
+                            const validateBlocklyElement = (e: Element | null) => e !== null && e.localName === "xml";
+                            let blocklyElement: Element = null;
+                            if (content.blocks !== undefined) {
+                                blocklyElement = Blockly.Xml.textToDom(content.blocks);
+                            }
+                            if (validateBlocklyElement(blocklyElement) === false) {
+                                throw new Error("INVALID_INPUT");
+                            }
+                            Blockly.Xml.domToWorkspace(blocklyElement, this);
+                            resolve();
+                        }));
+                    }
+                });
             }
 
             // custom options...
