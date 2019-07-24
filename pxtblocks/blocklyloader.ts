@@ -860,7 +860,7 @@ namespace pxt.blocks {
         switch (Util.userLanguage()) {
             case "zh-TW":
                 localizedString["Export"] = "匯出";
-                localizedString["Export All Blocks"] = "匯出";
+                localizedString["Export All Blocks"] = "匯出所有積木";
                 break;
             case "zh-CN":
                 localizedString["Export"] = "导出";
