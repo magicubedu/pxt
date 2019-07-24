@@ -860,9 +860,11 @@ namespace pxt.blocks {
         switch (Util.userLanguage()) {
             case "zh-TW":
                 localizedString["Export"] = "匯出";
+                localizedString["Export All Blocks"] = "匯出";
                 break;
             case "zh-CN":
                 localizedString["Export"] = "导出";
+                localizedString["Export All Blocks"] = "导出所有方块";
                 break;
         }
         Util.setLocalizedStrings(localizedString);
@@ -1395,118 +1397,147 @@ namespace pxt.blocks {
          * @private
          */
         (<any>Blockly).WorkspaceSvg.prototype.showContextMenu_ = function (e: any) {
-            if (this.options.readOnly || this.isFlyout) {
+            if (this.isFlyout) {
                 return;
             }
+
             let menuOptions: Blockly.ContextMenu.MenuItem[] = [];
-            let topBlocks = this.getTopBlocks();
-            let topComments = this.getTopComments();
-            let eventGroup = Blockly.utils.genUid();
-            let ws = this;
 
-            // Option to add a workspace comment.
-            if (this.options.comments && !BrowserUtils.isIE()) {
-                menuOptions.push((Blockly.ContextMenu as any).workspaceCommentOption(ws, e));
-            }
+            if (!this.options.readOnly) {
+                let topBlocks = this.getTopBlocks();
+                let topComments = this.getTopComments();
+                let eventGroup = Blockly.utils.genUid();
+                let ws = this;
 
-            // Add a little animation to deleting.
-            const DELAY = 10;
-
-            // Option to delete all blocks.
-            // Count the number of blocks that are deletable.
-            let deleteList = Blockly.WorkspaceSvg.buildDeleteList_(topBlocks);
-            let deleteCount = 0;
-            for (let i = 0; i < deleteList.length; i++) {
-                if (!deleteList[i].isShadow()) {
-                    deleteCount++;
+                // Option to add a workspace comment.
+                if (this.options.comments && !BrowserUtils.isIE()) {
+                    menuOptions.push((Blockly.ContextMenu as any).workspaceCommentOption(ws, e));
                 }
-            }
 
-            function deleteNext() {
-                (<any>Blockly).Events.setGroup(eventGroup);
-                let block = deleteList.shift();
-                if (block) {
-                    if (block.workspace) {
-                        block.dispose(false, true);
-                        setTimeout(deleteNext, DELAY);
-                    } else {
-                        deleteNext();
+                // Add a little animation to deleting.
+                const DELAY = 10;
+
+                // Option to delete all blocks.
+                // Count the number of blocks that are deletable.
+                let deleteList = Blockly.WorkspaceSvg.buildDeleteList_(topBlocks);
+                let deleteCount = 0;
+                for (let i = 0; i < deleteList.length; i++) {
+                    if (!deleteList[i].isShadow()) {
+                        deleteCount++;
                     }
                 }
-                Blockly.Events.setGroup(false);
-            }
 
-            const deleteOption = {
-                text: deleteCount == 1 ? msg.DELETE_BLOCK : msg.DELETE_ALL_BLOCKS,
-                enabled: deleteCount > 0,
-                callback: function () {
-                    pxt.tickEvent("blocks.context.delete", undefined, { interactiveConsent: true });
-                    if (deleteCount < 2) {
-                        deleteNext();
-                    } else {
-                        Blockly.confirm(lf("Delete all {0} blocks?", deleteCount), (ok) => {
-                            if (ok) {
-                                deleteNext();
-                            }
-                        });
+                function deleteNext() {
+                    (<any>Blockly).Events.setGroup(eventGroup);
+                    let block = deleteList.shift();
+                    if (block) {
+                        if (block.workspace) {
+                            block.dispose(false, true);
+                            setTimeout(deleteNext, DELAY);
+                        } else {
+                            deleteNext();
+                        }
                     }
+                    Blockly.Events.setGroup(false);
                 }
-            };
-            menuOptions.push(deleteOption);
 
-            const formatCodeOption = {
-                text: lf("Format Code"),
-                enabled: true,
-                callback: () => {
-                    pxt.tickEvent("blocks.context.format", undefined, { interactiveConsent: true });
-                    pxt.blocks.layout.flow(this, { useViewWidth: true });
-                }
-            }
-            menuOptions.push(formatCodeOption);
-
-            if (pxt.blocks.layout.screenshotEnabled()) {
-                const screenshotOption = {
-                    text: lf("Snapshot"),
-                    enabled: topBlocks.length > 0 || topComments.length > 0,
-                    callback: () => {
-                        pxt.tickEvent("blocks.context.screenshot", undefined, { interactiveConsent: true });
-                        pxt.blocks.layout.screenshotAsync(this)
-                            .done((uri) => {
-                                if (pxt.BrowserUtils.isSafari())
-                                    uri = uri.replace(/^data:image\/[^;]/, 'data:application/octet-stream');
-                                BrowserUtils.browserDownloadDataUri(
-                                    uri,
-                                    `${pxt.appTarget.nickname || pxt.appTarget.id}-${lf("screenshot")}.png`);
+                const deleteOption = {
+                    text: deleteCount == 1 ? msg.DELETE_BLOCK : msg.DELETE_ALL_BLOCKS,
+                    enabled: deleteCount > 0,
+                    callback: function () {
+                        pxt.tickEvent("blocks.context.delete", undefined, { interactiveConsent: true });
+                        if (deleteCount < 2) {
+                            deleteNext();
+                        } else {
+                            Blockly.confirm(lf("Delete all {0} blocks?", deleteCount), (ok) => {
+                                if (ok) {
+                                    deleteNext();
+                                }
                             });
+                        }
                     }
                 };
-                menuOptions.push(screenshotOption);
-            }
+                menuOptions.push(deleteOption);
 
-            if (blockPasteHandler !== undefined) {
-                menuOptions.push({
-                    text: lf("Import"),
+                const formatCodeOption = {
+                    text: lf("Format Code"),
                     enabled: true,
                     callback: () => {
-                        blockPasteHandler(content => new Promise(async (resolve, reject) => {
-                            const validateBlocklyElement = (e: Element | null) => e !== null && e.localName === "xml";
-                            let blocklyElement: Element = null;
-                            if (content.blocks !== undefined) {
-                                blocklyElement = Blockly.Xml.textToDom(content.blocks);
-                            }
-                            if (validateBlocklyElement(blocklyElement) === false) {
-                                throw new Error("INVALID_INPUT");
-                            }
-                            Blockly.Xml.domToWorkspace(blocklyElement, this);
-                            resolve();
-                        }));
+                        pxt.tickEvent("blocks.context.format", undefined, { interactiveConsent: true });
+                        pxt.blocks.layout.flow(this, { useViewWidth: true });
+                    }
+                }
+                menuOptions.push(formatCodeOption);
+
+                if (pxt.blocks.layout.screenshotEnabled()) {
+                    const screenshotOption = {
+                        text: lf("Snapshot"),
+                        enabled: topBlocks.length > 0 || topComments.length > 0,
+                        callback: () => {
+                            pxt.tickEvent("blocks.context.screenshot", undefined, { interactiveConsent: true });
+                            pxt.blocks.layout.screenshotAsync(this)
+                                .done((uri) => {
+                                    if (pxt.BrowserUtils.isSafari())
+                                        uri = uri.replace(/^data:image\/[^;]/, 'data:application/octet-stream');
+                                    BrowserUtils.browserDownloadDataUri(
+                                        uri,
+                                        `${pxt.appTarget.nickname || pxt.appTarget.id}-${lf("screenshot")}.png`);
+                                });
+                        }
+                    };
+                    menuOptions.push(screenshotOption);
+                }
+            }
+
+            if (blockCopyHandler !== undefined) {
+                menuOptions.push({
+                    text: lf("Export All Blocks"),
+                    enabled: true,
+                    callback: async () => {
+                        const xmlRoot = Blockly.Xml.workspaceToDom(this, true);
+                        xmlRoot.querySelectorAll("*").forEach(element => {
+                            element.removeAttribute("deletable");
+                            element.removeAttribute("movable");
+                            element.removeAttribute("editable");
+                            element.removeAttribute("id");
+                        });
+                        xmlRoot.querySelectorAll("comment").forEach(element => {
+                            element.removeAttribute("h");
+                            element.removeAttribute("w");
+                        });
+                        blockCopyHandler({
+                            blocks: Blockly.Xml.domToText(xmlRoot)
+                        });
                     }
                 });
             }
 
-            // custom options...
-            if (onShowContextMenu)
-                onShowContextMenu(this, menuOptions);
+            if (!this.options.readOnly) {
+                if (blockPasteHandler !== undefined) {
+                    menuOptions.push({
+                        text: lf("Import"),
+                        enabled: true,
+                        callback: () => {
+                            blockPasteHandler(content => new Promise(async (resolve, reject) => {
+                                const validateBlocklyElement = (e: Element | null) => e !== null && e.localName === "xml";
+                                let blocklyElement: Element = null;
+                                if (content.blocks !== undefined) {
+                                    blocklyElement = Blockly.Xml.textToDom(content.blocks);
+                                }
+                                if (validateBlocklyElement(blocklyElement) === false) {
+                                    throw new Error("INVALID_INPUT");
+                                }
+                                Blockly.Xml.domToWorkspace(blocklyElement, this);
+                                resolve();
+                            }));
+                        }
+                    });
+                }
+
+                // custom options...
+                if (onShowContextMenu)
+                    onShowContextMenu(this, menuOptions);
+            }
 
             Blockly.ContextMenu.show(e, menuOptions, this.RTL);
         };
