@@ -1345,6 +1345,21 @@ namespace pxt.blocks {
             const block = this;
             let menuOptions: Blockly.ContextMenu.MenuItem[] = [];
 
+            if (pxt.blocks.layout.screenshotEnabled()) {
+                const screenshotOption = {
+                    text: lf("Snapshot"),
+                    enabled: true,
+                    callback: async () => {
+                        let uri = await pxt.blocks.layout.screenshotBlockAsync(block);
+                        if (pxt.BrowserUtils.isSafari()) {
+                            uri = uri.replace(/^data:image\/[^;]/, 'data:application/octet-stream');
+                        }
+                        BrowserUtils.browserDownloadDataUri(uri, `${pxt.appTarget.nickname || pxt.appTarget.id}-${lf("screenshot")}.png`);
+                    }
+                };
+                menuOptions.push(screenshotOption);
+            }
+
             if (blockCopyHandler !== undefined) {
                 menuOptions.push({
                     text: lf("Export"),
@@ -1402,13 +1417,12 @@ namespace pxt.blocks {
             }
 
             let menuOptions: Blockly.ContextMenu.MenuItem[] = [];
+            let topBlocks = this.getTopBlocks();
+            let topComments = this.getTopComments();
+            let eventGroup = Blockly.utils.genUid();
+            let ws = this;
 
             if (!this.options.readOnly) {
-                let topBlocks = this.getTopBlocks();
-                let topComments = this.getTopComments();
-                let eventGroup = Blockly.utils.genUid();
-                let ws = this;
-
                 // Option to add a workspace comment.
                 if (this.options.comments && !BrowserUtils.isIE()) {
                     menuOptions.push((Blockly.ContextMenu as any).workspaceCommentOption(ws, e));
@@ -1468,25 +1482,25 @@ namespace pxt.blocks {
                     }
                 }
                 menuOptions.push(formatCodeOption);
+            }
 
-                if (pxt.blocks.layout.screenshotEnabled()) {
-                    const screenshotOption = {
-                        text: lf("Snapshot"),
-                        enabled: topBlocks.length > 0 || topComments.length > 0,
-                        callback: () => {
-                            pxt.tickEvent("blocks.context.screenshot", undefined, { interactiveConsent: true });
-                            pxt.blocks.layout.screenshotAsync(this)
-                                .done((uri) => {
-                                    if (pxt.BrowserUtils.isSafari())
-                                        uri = uri.replace(/^data:image\/[^;]/, 'data:application/octet-stream');
-                                    BrowserUtils.browserDownloadDataUri(
-                                        uri,
-                                        `${pxt.appTarget.nickname || pxt.appTarget.id}-${lf("screenshot")}.png`);
-                                });
-                        }
-                    };
-                    menuOptions.push(screenshotOption);
-                }
+            if (pxt.blocks.layout.screenshotEnabled()) {
+                const screenshotOption = {
+                    text: lf("Snapshot"),
+                    enabled: topBlocks.length > 0 || topComments.length > 0,
+                    callback: () => {
+                        pxt.tickEvent("blocks.context.screenshot", undefined, { interactiveConsent: true });
+                        pxt.blocks.layout.screenshotAsync(this)
+                            .done((uri) => {
+                                if (pxt.BrowserUtils.isSafari())
+                                    uri = uri.replace(/^data:image\/[^;]/, 'data:application/octet-stream');
+                                BrowserUtils.browserDownloadDataUri(
+                                    uri,
+                                    `${pxt.appTarget.nickname || pxt.appTarget.id}-${lf("screenshot")}.png`);
+                            });
+                    }
+                };
+                menuOptions.push(screenshotOption);
             }
 
             if (blockCopyHandler !== undefined) {
