@@ -856,6 +856,17 @@ namespace pxt.blocks {
         Blockly.FieldCheckbox.CHECK_CHAR = '■';
         Blockly.BlockSvg.START_HAT = !!pxt.appTarget.appTheme.blockHats;
 
+        const localizedString = Util.getLocalizedStrings();
+        switch (Util.userLanguage()) {
+            case "zh-TW":
+                localizedString["Export"] = "匯出";
+                break;
+            case "zh-CN":
+                localizedString["Export"] = "导出";
+                break;
+        }
+        Util.setLocalizedStrings(localizedString);
+
         initFieldEditors();
         initContextMenu();
         initOnStart();
@@ -1372,10 +1383,10 @@ namespace pxt.blocks {
                 if (this.customContextMenu) {
                     this.customContextMenu(menuOptions);
                 }
-
-                Blockly.ContextMenu.show(e, menuOptions, this.RTL);
-                Blockly.ContextMenu.currentBlock = this;
             }
+
+            Blockly.ContextMenu.show(e, menuOptions, this.RTL);
+            Blockly.ContextMenu.currentBlock = this;
         };
 
         /**
