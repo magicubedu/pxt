@@ -163,20 +163,8 @@ namespace pxt.blocks.layout {
         return toPngAsync(ws);
     }
 
-    export function screenshotBlockAsync(block: Blockly.BlockSvg): Promise<string> {
-        return blockToPngAsync(block);
-    }
-
     export function toPngAsync(ws: Blockly.Workspace): Promise<string> {
         return toSvgAsync(ws)
-            .then(sg => {
-                if (!sg) return Promise.resolve<string>(undefined);
-                return toPngAsyncInternal(sg.width, sg.height, 4, sg.xml);
-            });
-    }
-
-    export function blockToPngAsync(block: Blockly.BlockSvg): Promise<string> {
-        return blockToSvgAsync(block)
             .then(sg => {
                 if (!sg) return Promise.resolve<string>(undefined);
                 return toPngAsyncInternal(sg.width, sg.height, 4, sg.xml);
@@ -226,20 +214,6 @@ namespace pxt.blocks.layout {
         cleanUpBlocklySvg(sg);
 
         return blocklyToSvgAsync(sg, metrics.x, metrics.y, metrics.width, metrics.height);
-    }
-
-    export function blockToSvgAsync(block: Blockly.BlockSvg): Promise<{
-        width: number; height: number; xml: string;
-    }> {
-        let svgRoot = document.importNode(block.getSvgRoot(), true) as SVGElement;
-        if (svgRoot.localName !== "svg") {
-            const newSvgRoot = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            newSvgRoot.setAttribute("version", "1.1");
-            newSvgRoot.appendChild(svgRoot);
-            svgRoot = newSvgRoot;
-        }
-        cleanUpBlocklySvg(svgRoot);
-        return blocklyToSvgAsync(svgRoot, 0, 0, block.width, block.height);
     }
 
     export function serializeNode(sg: Node): string {

@@ -1345,28 +1345,15 @@ namespace pxt.blocks {
             const block = this;
             let menuOptions: Blockly.ContextMenu.MenuItem[] = [];
 
-            if (pxt.blocks.layout.screenshotEnabled()) {
-                const screenshotOption = {
-                    text: lf("Snapshot"),
-                    enabled: true,
-                    callback: async () => {
-                        let uri = await pxt.blocks.layout.screenshotBlockAsync(block);
-                        if (pxt.BrowserUtils.isSafari()) {
-                            uri = uri.replace(/^data:image\/[^;]/, 'data:application/octet-stream');
-                        }
-                        BrowserUtils.browserDownloadDataUri(uri, `${pxt.appTarget.nickname || pxt.appTarget.id}-${lf("screenshot")}.png`);
-                    }
-                };
-                menuOptions.push(screenshotOption);
-            }
-
             if (blockCopyHandler !== undefined) {
                 menuOptions.push({
                     text: lf("Export"),
                     enabled: true,
                     callback: async () => {
+                        const blockInDom = Blockly.Xml.blockToDom(block, true);
+                        Blockly.Xml.deleteNext(blockInDom);
                         const xmlRoot = document.createElementNS("http://www.w3.org/1999/xhtml", "xml");
-                        xmlRoot.appendChild(Blockly.Xml.blockToDom(block, true));
+                        xmlRoot.appendChild(blockInDom);
                         xmlRoot.querySelectorAll("*").forEach(element => {
                             element.removeAttribute("deletable");
                             element.removeAttribute("movable");
