@@ -354,10 +354,9 @@ export function installAsync(h0: InstallHeader, text: ScriptText) {
     h.recentUse = U.nowSeconds()
     h.modificationTime = h.recentUse;
 
-    const cfg: pxt.PackageConfig = JSON.parse(text[pxt.CONFIG_NAME] || "{}")
-    if (cfg.preferredEditor)
+    const cfg: pxt.PackageConfig = pxt.Package.parseAndValidConfig(text[pxt.CONFIG_NAME]);
+    if (cfg && cfg.preferredEditor)
         h.editor = cfg.preferredEditor
-
     return importAsync(h, text)
         .then(() => h)
 }
@@ -422,7 +421,7 @@ export function getPublishedScriptAsync(id: string) {
     checkSession();
     //if (scriptCache.hasOwnProperty(id)) return Promise.resolve(scriptCache[id])
     if (pxt.github.isGithubId(id))
-        id = pxt.github.noramlizeRepoId(id)
+        id = pxt.github.normalizeRepoId(id)
     let eid = encodeURIComponent(id)
     return pxt.packagesConfigAsync()
         .then(config => scriptDlQ.enqueue(id, () => scripts.getAsync(eid)
@@ -477,6 +476,11 @@ export async function pullAsync(hd: Header, checkOnly = false) {
     }
 }
 
+export async function hasMergeConflictMarkers(hd: Header): Promise<boolean> {
+    const files = await getTextAsync(hd.id)
+    return !!Object.keys(files).find(k => pxt.github.hasMergeConflictMarker(files[k]));
+}
+
 export async function prAsync(hd: Header, commitId: string, msg: string) {
     let parsed = pxt.github.parseRepoId(hd.githubId)
     // merge conflict - create a Pull Request
@@ -510,12 +514,6 @@ export async function bumpAsync(hd: Header, newVer = "") {
         message: cfg.version,
         createTag: "v" + cfg.version
     })
-}
-
-export function lookupFile(commit: pxt.github.Commit, path: string) {
-    if (!commit)
-        return null
-    return commit.tree.tree.find(e => e.path == path)
 }
 
 export interface CommitOptions {
@@ -554,14 +552,13 @@ export async function commitAsync(hd: Header, options: CommitOptions = {}) {
     if (treeUpdate.tree.length == 0)
         U.userError(lf("Nothing to commit!"))
 
-    let blocksScreenshotSha: string;
     let blocksDiffSha: string;
     if (options
         && treeUpdate.tree.find(e => e.path == "main.blocks")) {
         if (options.blocksScreenshotAsync) {
             const png = await options.blocksScreenshotAsync();
             if (png)
-                blocksScreenshotSha = await addToTree(BLOCKS_PREVIEW_PATH, png);
+                await addToTree(BLOCKS_PREVIEW_PATH, png);
         }
         if (options.blocksDiffScreenshotAsync) {
             const png = await options.blocksDiffScreenshotAsync();
@@ -614,12 +611,12 @@ export async function commitAsync(hd: Header, options: CommitOptions = {}) {
             data.content = content.substr(m[0].length);
         }
         const sha = gitsha(data.content, data.encoding)
-        const ex = lookupFile(gitjson.commit, path)
+        const ex = pxt.github.lookupFile(gitjson.commit, path)
         let res: string;
         if (!ex || ex.sha != sha) {
             // look for unfinished merges
             if (data.encoding == "utf-8" &&
-                /^(<<<<<<<[^<]|=======|>>>>>>>[^>])/m.test(data.content))
+                pxt.github.hasMergeConflictMarker(data.content))
                 throw mergeConflictMarkerError();
             res = await pxt.github.createObjectAsync(parsed.fullName, "blob", data)
             if (data.encoding == "utf-8")
@@ -684,8 +681,8 @@ async function githubUpdateToAsync(hd: Header, options: UpdateOptions) {
 
     const downloadAsync = async (path: string) => {
         downloadedFiles[path] = true
-        const treeEnt = lookupFile(commit, path)
-        const oldEnt = lookupFile(gitjson.commit, path)
+        const treeEnt = pxt.github.lookupFile(commit, path)
+        const oldEnt = pxt.github.lookupFile(gitjson.commit, path)
         const hasChanges = files[path] != null && (!oldEnt || oldEnt.blobContent != files[path])
         if (!treeEnt) {
             // file in pxt.json but not in git: 
@@ -734,25 +731,37 @@ async function githubUpdateToAsync(hd: Header, options: UpdateOptions) {
     }
 
     const cfgText = await downloadAsync(pxt.CONFIG_NAME)
-    const cfg = pxt.Util.jsonTryParse(cfgText || "{}") as pxt.PackageConfig
-    if (!cfg)
-        U.userError(lf("Invalid pxt.json file."));
-    for (let fn of pxt.allPkgFiles(cfg).slice(1)) {
-        await downloadAsync(fn)
+    let cfg = pxt.Package.parseAndValidConfig(cfgText);
+    // invalid cfg or no TypeScript files
+    if (!cfg || !cfg.files.find(f => /\.ts$/.test(f))) {
+        if (hd) // not importing
+            U.userError(lf("Invalid pxt.json file."));
+        pxt.log(`github: reconstructing pxt.json`)
+        cfg = pxt.github.reconstructConfig(commit);
+        // ensure that there is at least 1 ts file in the project
+        if (!cfg.files.find(f => /\.ts$/.test(f))) {
+            cfg.files.push("main.ts");
+            if (!justJSON)
+                files["main.ts"] = "\n";
+        }
+        files[pxt.CONFIG_NAME] = pxt.Package.stringifyConfig(cfg);
     }
 
+    for (const fn of pxt.allPkgFiles(cfg).slice(1))
+        await downloadAsync(fn)
+
+    if (!cfg.name) {
+        cfg.name = (parsed.project || parsed.fullName).replace(/[^\w\-]/g, "");
+        if (!justJSON)
+            files[pxt.CONFIG_NAME] = pxt.Package.stringifyConfig(cfg);
+    }
     if (!justJSON) {
         // if any block needs decompilation, don't allow merge error markers
         if (blocksNeedDecompilation && conflicts)
             throw mergeError()
-
         for (let k of Object.keys(files)) {
             if (k[0] != "." && !downloadedFiles[k])
                 delete files[k]
-        }
-        if (!cfg.name) {
-            cfg.name = parsed.fullName.replace(/[^\w\-]/g, "")
-            files[pxt.CONFIG_NAME] = pxt.Package.stringifyConfig(cfg);
         }
     }
 
@@ -816,7 +825,7 @@ export async function recomputeHeaderFlagsAsync(h: Header, files: ScriptText) {
     for (let k of Object.keys(files)) {
         if (k == GIT_JSON || k == pxt.SIMSTATE_JSON || k == pxt.SERIAL_EDITOR_FILE)
             continue
-        let treeEnt = lookupFile(gitjson.commit, k)
+        let treeEnt = pxt.github.lookupFile(gitjson.commit, k)
         if (!treeEnt || treeEnt.type != "blob") {
             isCurrent = false
             continue
@@ -865,6 +874,9 @@ export async function initializeGithubRepoAsync(hd: Header, repoid: string, forc
     if (forceTemplateFiles) {
         U.jsonMergeFrom(currFiles, templateFiles);
     } else {
+        // special handling of broken/missing/corrupted pxt.json
+        if (!pxt.Package.parseAndValidConfig(currFiles[pxt.CONFIG_NAME]))
+            delete currFiles[pxt.CONFIG_NAME];
         // special case override README.md if empty
         let templateREADME = templateFiles["README.md"];
         if (currFiles["README.md"] && currFiles["README.md"].trim())
@@ -910,9 +922,10 @@ export async function initializeGithubRepoAsync(hd: Header, repoid: string, forc
 }
 
 export async function importGithubAsync(id: string): Promise<Header> {
+    const repoid = pxt.github.normalizeRepoId(id).replace(/^github:/, "")
+    const parsed = pxt.github.parseRepoId(repoid)
+
     let sha = ""
-    let repoid = pxt.github.noramlizeRepoId(id).replace(/^github:/, "")
-    let parsed = pxt.github.parseRepoId(repoid)
     let isEmpty = false
     try {
         sha = await pxt.github.getRefAsync(parsed.fullName, parsed.tag)
@@ -930,12 +943,14 @@ export async function importGithubAsync(id: string): Promise<Header> {
             U.userError(lf("No such repository or branch."));
         }
     }
-    return await githubUpdateToAsync(null, { repo: repoid, sha, files: {} })
-        .then(hd => {
-            if (isEmpty)
-                return initializeGithubRepoAsync(hd, repoid, true);
-            return hd
-        })
+    const hd = await githubUpdateToAsync(null, {
+        repo: repoid,
+        sha,
+        files: {}
+    })
+    if (hd && isEmpty)
+        await initializeGithubRepoAsync(hd, repoid, true);
+    return hd
 }
 
 export function downloadFilesByIdAsync(id: string): Promise<pxt.Map<string>> {
