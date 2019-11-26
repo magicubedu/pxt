@@ -489,6 +489,24 @@ async function getCachedApiInfoAsync(project: pkg.EditorPackage, bundled: pxt.Ma
         if (used.apis.jres) pxt.Util.jsonCopyFrom(result.jres, used.apis.jres);
     }
 
+    const jres = pkg.mainPkg.getJRes();
+
+    for (const qName of Object.keys(result.byQName)) {
+        let si = result.byQName[qName]
+
+        let jrname = si.attributes.jres
+        if (jrname) {
+            if (jrname == "true") jrname = qName
+            let jr = U.lookup(jres || {}, jrname)
+            if (jr && jr.icon && !si.attributes.iconURL) {
+                si.attributes.iconURL = jr.icon
+            }
+            if (jr && jr.data && !si.attributes.jresURL) {
+                si.attributes.jresURL = "data:" + jr.mimeType + ";base64," + jr.data
+            }
+        }
+    }
+
     return result;
 }
 
@@ -841,6 +859,7 @@ class ApiInfoIndexedDb {
     }
 
     setAsync(pack: pkg.EditorPackage, apis: pxt.PackageApiInfo): Promise<void> {
+        pxt.perf.measureStart("compiler db setAsync")
         const key = getPackageKey(pack);
         const hash = getPackageHash(pack);
 
@@ -850,6 +869,9 @@ class ApiInfoIndexedDb {
             apis
         };
 
-        return this.db.setAsync(ApiInfoIndexedDb.TABLE, entry);
+        return this.db.setAsync(ApiInfoIndexedDb.TABLE, entry)
+            .then(() => {
+                pxt.perf.measureEnd("compiler db setAsync")
+            })
     }
 }
