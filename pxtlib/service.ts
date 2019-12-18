@@ -1397,6 +1397,7 @@ namespace ts.pxtc.service {
         projectSearch?: ProjectSearchOptions;
         snippet?: SnippetOptions;
         runtime?: pxt.RuntimeOptions;
+        generatedVarDeclarations?: pxt.Map<pxt.blocks.VarDeclaration>;
     }
 
     export interface SnippetOptions {
