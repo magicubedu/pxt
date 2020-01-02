@@ -3848,8 +3848,12 @@ function isProjectRelatedHash(hash: { cmd: string; arg: string }): boolean {
 async function importGithubProject(repoid: string) {
     core.showLoading("loadingheader", lf("importing GitHub project..."));
     try {
+        // normalize for precise matching
+        repoid = pxt.github.normalizeRepoId(repoid);
         // try to find project with same id
-        let hd = workspace.getHeaders().find(h => h.githubId == repoid);
+        let hd = workspace.getHeaders().find(h => h.githubId &&
+            pxt.github.normalizeRepoId(h.githubId) == repoid
+        );
         if (!hd)
             hd = await workspace.importGithubAsync(repoid)
         if (hd)
@@ -3993,8 +3997,8 @@ document.addEventListener("DOMContentLoaded", () => {
     appcache.init(() => theEditor.reloadEditor());
     blocklyFieldView.init();
 
-    pxt.hex.showLoading = (msg) => core.showLoading("hexcloudcompiler", msg);
-    pxt.hex.hideLoading = () => core.hideLoading("hexcloudcompiler");
+    pxt.hexloader.showLoading = (msg) => core.showLoading("hexcloudcompiler", msg);
+    pxt.hexloader.hideLoading = () => core.hideLoading("hexcloudcompiler");
     pxt.docs.requireMarked = () => require("marked");
     const importHex = (hex: pxt.cpp.HexFile, options?: pxt.editor.ImportFileOptions) => theEditor.importHex(hex, options);
 

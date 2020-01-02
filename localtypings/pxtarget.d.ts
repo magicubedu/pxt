@@ -49,6 +49,7 @@ declare namespace pxt {
         ignoreDocsErrors?: boolean;
         uploadDocs?: boolean; // enable uploading to crowdin on master or v* builds
         variants?: Map<AppTarget>; // patches on top of the current AppTarget for different chip variants
+        multiVariants?: string[];
         queryVariants?: Map<AppTarget>; // patches on top of the current AppTarget using query url regex
         unsupportedBrowsers?: BrowserOptions[]; // list of unsupported browsers for a specific target (eg IE11 in arcade). check browserutils.js browser() function for strings
         checkdocsdirs?: string[]; // list of folders for checkdocs, irrespective of SUMMARY.md
@@ -459,7 +460,6 @@ declare namespace ts.pxtc {
         hexMimeType?: string;
         driveName?: string;
         jsRefCounting?: boolean;
-        gc?: boolean;
         utf8?: boolean;
         switches: CompileSwitches;
         deployDrives?: string; // partial name of drives where the .hex file should be copied
@@ -478,7 +478,6 @@ declare namespace ts.pxtc {
         hidSelectors?: HidSelector[];
         emptyEventHandlerComments?: boolean; // true adds a comment for empty event handlers
         vmOpCodes?: pxt.Map<number>;
-        vtableShift?: number; // defaults to 2, i.e., (1<<2) == 4 byte alignment of vtables, and thus 256k max program size; increase for chips with more flash!
         postProcessSymbols?: boolean;
         imageRefTag?: number;
         keepCppFiles?: boolean;
@@ -743,7 +742,6 @@ declare namespace ts.pxtc {
         sourceFiles?: string[];
         generatedFiles?: string[];
         jres?: pxt.Map<pxt.JRes>;
-        hexinfo: HexInfo;
         extinfo?: ExtensionInfo;
         noEmit?: boolean;
         forceEmit?: boolean;
@@ -796,6 +794,10 @@ declare namespace ts.pxtc {
         onlyPublic: boolean;
         commBase?: number;
         skipCloudBuild?: boolean;
+        hexinfo?: HexInfo;
+        otherMultiVariants?: ExtensionInfo[];
+        appVariant?: string;
+        outputPrefix?: string;
     }
 
     interface HexInfo {
