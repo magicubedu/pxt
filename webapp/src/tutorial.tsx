@@ -205,8 +205,8 @@ export class TutorialHint extends data.Component<ISettingsProps, TutorialHintSta
         super(props);
 
         this.next = this.next.bind(this);
-        this.toggleHint = this.toggleHint.bind(this);
         this.showHint = this.showHint.bind(this);
+        this.closeHint = this.closeHint.bind(this);
     }
 
     next() {
@@ -219,12 +219,12 @@ export class TutorialHint extends data.Component<ISettingsProps, TutorialHintSta
         this.props.parent.setTutorialStep(nextStep);
     }
 
-    toggleHint(showFullText?: boolean) {
-        this.showHint(!this.state.visible, showFullText);
+    showHint(visible: boolean, showFullText?: boolean) {
+        this.setState({ visible, showFullText });
     }
 
-    showHint(visible: boolean, showFullText?: boolean) {
-        this.setState({ visible, showFullText })
+    protected closeHint() {
+        this.showHint(false, this.state.showFullText);
     }
 
     renderCore() {
@@ -244,7 +244,7 @@ export class TutorialHint extends data.Component<ISettingsProps, TutorialHintSta
                 <md.MarkedContent markdown={this.state.showFullText ? fullText : tutorialHint} parent={this.props.parent} />
             </div>
         } else {
-            let onClick = tutorialStep < tutorialStepInfo.length - 1 ? this.next : this.toggleHint;
+            let onClick = tutorialStep < tutorialStepInfo.length - 1 ? this.next : this.closeHint;
             const actions: sui.ModalButton[] = [{
                 label: lf("Ok"),
                 onclick: onClick,
@@ -263,7 +263,7 @@ export class TutorialHint extends data.Component<ISettingsProps, TutorialHintSta
 }
 
 interface TutorialCardState {
-    showHintTooltip?: boolean;
+    showHint?: boolean;
     showSeeMore?: boolean;
 }
 
@@ -284,10 +284,11 @@ export class TutorialCard extends data.Component<TutorialCardProps, TutorialCard
 
         this.state = {
             showSeeMore: false,
-            showHintTooltip: !options.tutorialStepInfo[this.prevStep].fullscreen
+            showHint: options.tutorialStepInfo[this.prevStep].fullscreen
         }
 
         this.toggleHint = this.toggleHint.bind(this);
+        this.closeHint = this.closeHint.bind(this);
         this.hintOnClick = this.hintOnClick.bind(this);
         this.closeLightbox = this.closeLightbox.bind(this);
         this.tutorialCardKeyDown = this.tutorialCardKeyDown.bind(this);
@@ -385,9 +386,8 @@ export class TutorialCard extends data.Component<TutorialCardProps, TutorialCard
             this.setShowSeeMore(options.autoexpandStep);
             this.prevStep = step;
 
-            if (!!options.tutorialStepInfo[step].unplugged) {
-                this.removeHintOnClick();
-            }
+            // on "new step", sync tutorial card state. used when exiting the modal, since that bypasses the react lifecycle
+            this.setState({showHint: options.tutorialStepInfo[step].unplugged || options.tutorialStepInfo[step].fullscreen})
         }
     }
 
@@ -408,7 +408,7 @@ export class TutorialCard extends data.Component<TutorialCardProps, TutorialCard
 
     private removeHintOnClick() {
         // cleanup hintOnClick
-        document.removeEventListener('click', this.hintOnClick);
+        document.removeEventListener('click', this.closeHint);
     }
 
     toggleExpanded(ev: React.MouseEvent<HTMLDivElement>) {
@@ -433,8 +433,7 @@ export class TutorialCard extends data.Component<TutorialCardProps, TutorialCard
             pxt.reportError("tutorial", "leaking hintonclick");
             return;
         }
-        if (evt)
-            evt.stopPropagation();
+        if (evt) evt.stopPropagation();
         const { tutorialStepInfo, tutorialStep } = options;
         const step = tutorialStepInfo[tutorialStep];
         const unplugged = tutorialStep < tutorialStepInfo.length - 1 && step && !!step.unplugged;
@@ -471,37 +470,33 @@ export class TutorialCard extends data.Component<TutorialCardProps, TutorialCard
     }
 
     toggleHint(showFullText?: boolean) {
-        const th = this.refs["tutorialhint"] as TutorialHint;
-        this.showHint(!(th && th.state && th.state.visible), showFullText);
+        this.showHint(!this.state.showHint, showFullText);
+    }
+
+    closeHint(evt?: any) {
+        this.showHint(false);
     }
 
     showHint(visible: boolean, showFullText?: boolean) {
-        if (!this.hasHint()) {
-            this.removeHintOnClick();
-            return;
-        }
+        this.removeHintOnClick();
         this.closeLightbox();
+        if (!this.hasHint()) return;
+
         const th = this.refs["tutorialhint"] as TutorialHint;
         if (!th) return;
 
         if (!visible) {
-            if (th.elementRef) {
-                this.removeHintOnClick();
-                th.elementRef.removeEventListener('click', this.expandedHintOnClick);
-            }
-
-            this.setState({ showHintTooltip: true });
+            if (th.elementRef) th.elementRef.removeEventListener('click', this.expandedHintOnClick);
+            this.setState({ showHint: false });
             this.props.parent.pokeUserActivity();
         } else {
-            if (th.elementRef) {
-                document.addEventListener('click', this.hintOnClick);
-                th.elementRef.addEventListener('click', this.expandedHintOnClick);
-            }
-
-            this.setState({ showHintTooltip: false });
+            if (th.elementRef) th.elementRef.addEventListener('click', this.expandedHintOnClick);
+            this.setState({ showHint: true });
             this.props.parent.stopPokeUserActivity();
 
             const options = this.props.parent.state.tutorialOptions;
+            if (!options.tutorialStepInfo[options.tutorialStep].unplugged)
+                document.addEventListener('click', this.closeHint); // add close listener if not modal
             pxt.tickEvent(`tutorial.showhint`, { tutorial: options.tutorial, step: options.tutorialStep });
         }
         th.showHint(visible, showFullText);
@@ -532,14 +527,15 @@ export class TutorialCard extends data.Component<TutorialCardProps, TutorialCard
 
         let hintOnClick = this.hintOnClick;
         // double-click issue on edge when closing hint from tutorial card click
-        if ((pxt.BrowserUtils.isEdge() || pxt.BrowserUtils.isIE()) && !this.state.showHintTooltip && !unplugged) {
+        if ((pxt.BrowserUtils.isEdge() || pxt.BrowserUtils.isIE()) && this.state.showHint && !unplugged) {
             hintOnClick = null;
         }
 
         const isRtl = pxt.Util.isUserLanguageRtl();
-        return <div id="tutorialcard" className={`ui ${tutorialStepExpanded ? 'tutorialExpanded' : ''} ${tutorialReady ? 'tutorialReady' : ''} ${this.state.showSeeMore ? 'seemore' : ''}  ${this.state.showHintTooltip ? 'showTooltip' : ''} ${hasHint ? 'hasHint' : ''}`} style={tutorialStepExpanded ? this.getExpandedCardStyle('height') : null} >
+        return <div id="tutorialcard" className={`ui ${tutorialStepExpanded ? 'tutorialExpanded' : ''} ${tutorialReady ? 'tutorialReady' : ''} ${this.state.showSeeMore ? 'seemore' : ''}  ${!this.state.showHint ? 'showTooltip' : ''} ${hasHint ? 'hasHint' : ''}`} style={tutorialStepExpanded ? this.getExpandedCardStyle('height') : null} >
+            {hasHint && this.state.showHint && !unplugged && <div className="mask" role="region" onClick={this.closeHint}></div>}
             <div className='ui buttons'>
-                {hasPrevious ? <sui.Button icon={`${isRtl ? 'right' : 'left'} chevron orange large`} className={`prevbutton left attached ${!hasPrevious ? 'disabled' : ''}`} text={lf("Back")} textClass="widedesktop only" ariaLabel={lf("Go to the previous step of the tutorial.")} onClick={this.previousTutorialStep} onKeyDown={sui.fireClickOnEnter} /> : undefined}
+                {hasPrevious ? <sui.Button icon={`${isRtl ? 'right' : 'left'} chevron large`} className={`prevbutton left attached ${!hasPrevious ? 'disabled' : ''}`} text={lf("Back")} textClass="widedesktop only" ariaLabel={lf("Go to the previous step of the tutorial.")} onClick={this.previousTutorialStep} onKeyDown={sui.fireClickOnEnter} /> : undefined}
                 <div className="ui segment attached tutorialsegment">
                     <div className="avatar-container">
                         <div role="button" className={`avatar-image ${hasHint && this.props.pokeUser ? 'shake' : ''}`} onClick={hintOnClick} onKeyDown={sui.fireClickOnEnter}></div>
@@ -557,7 +553,7 @@ export class TutorialCard extends data.Component<TutorialCardProps, TutorialCard
                     {this.state.showSeeMore && tutorialStepExpanded && <sui.Button className="fluid compact lightgrey" icon="chevron up" tabIndex={0} text={lf("Less...")} onClick={this.toggleExpanded} onKeyDown={sui.fireClickOnEnter} />}
                     <sui.Button ref="tutorialok" id="tutorialOkButton" className="large green okbutton showlightbox" text={lf("Ok")} onClick={this.closeLightbox} onKeyDown={sui.fireClickOnEnter} />
                 </div>
-                {hasNext ? <sui.Button icon={`${isRtl ? 'left' : 'right'} chevron orange large`} className={`nextbutton right attached ${!hasNext ? 'disabled' : ''}`} text={lf("Next")} textClass="widedesktop only" ariaLabel={lf("Go to the next step of the tutorial.")} onClick={this.nextTutorialStep} onKeyDown={sui.fireClickOnEnter} /> : undefined}
+                {hasNext ? <sui.Button icon={`${isRtl ? 'left' : 'right'} chevron large`} className={`nextbutton right attached ${!hasNext ? 'disabled' : ''}`} text={lf("Next")} textClass="widedesktop only" ariaLabel={lf("Go to the next step of the tutorial.")} onClick={this.nextTutorialStep} onKeyDown={sui.fireClickOnEnter} /> : undefined}
                 {hasFinish ? <sui.Button icon="left checkmark" className={`orange right attached ${!tutorialReady ? 'disabled' : ''}`} text={lf("Finish")} ariaLabel={lf("Finish the tutorial.")} onClick={this.finishTutorial} onKeyDown={sui.fireClickOnEnter} /> : undefined}
             </div>
         </div>;

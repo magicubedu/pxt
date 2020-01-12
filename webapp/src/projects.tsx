@@ -237,6 +237,7 @@ export class ProjectSettingsMenu extends data.Component<ProjectSettingsMenuProps
         this.showLanguagePicker = this.showLanguagePicker.bind(this);
         this.toggleHighContrast = this.toggleHighContrast.bind(this);
         this.showResetDialog = this.showResetDialog.bind(this);
+        this.showReportAbuse = this.showReportAbuse.bind(this);
         this.showAboutDialog = this.showAboutDialog.bind(this);
         this.signOutGithub = this.signOutGithub.bind(this);
     }
@@ -261,6 +262,12 @@ export class ProjectSettingsMenu extends data.Component<ProjectSettingsMenuProps
         this.props.parent.showResetDialog();
     }
 
+    showReportAbuse() {
+        pxt.tickEvent("home.reportabuse", undefined, { interactiveConsent: true });
+        this.props.parent.showReportAbuse();
+    }
+
+
     showAboutDialog() {
         pxt.tickEvent("home.about");
         this.props.parent.showAboutDialog();
@@ -269,14 +276,18 @@ export class ProjectSettingsMenu extends data.Component<ProjectSettingsMenuProps
     signOutGithub() {
         pxt.tickEvent("home.github.signout");
         const githubProvider = cloudsync.githubProvider();
-        if (githubProvider)
+        if (githubProvider) {
             githubProvider.logout();
+            this.props.parent.forceUpdate();
+            core.infoNotification(lf("Signed out from GitHub"))
+        }
     }
 
     renderCore() {
         const { highContrast } = this.state;
         const targetTheme = pxt.appTarget.appTheme;
         const githubUser = this.getData("github:user") as pxt.editor.UserInfo;
+        const reportAbuse = pxt.appTarget.cloud && pxt.appTarget.cloud.sharing && pxt.appTarget.cloud.importing;
 
         // tslint:disable react-a11y-anchors
         return <sui.DropdownMenu role="menuitem" icon={'setting large'} title={lf("More...")} className="item icon more-dropdown-menuitem">
@@ -290,8 +301,9 @@ export class ProjectSettingsMenu extends data.Component<ProjectSettingsMenuProps
                 {lf("Sign out")}
             </div> : undefined}
             <div className="ui divider"></div>
-            <sui.Item role="menuitem" text={lf("About...")} onClick={this.showAboutDialog} />
+            {reportAbuse ? <sui.Item role="menuitem" icon="warning circle" text={lf("Report Abuse...")} onClick={this.showReportAbuse} /> : undefined}
             <sui.Item role="menuitem" icon='sign out' text={lf("Reset")} onClick={this.showResetDialog} />
+            <sui.Item role="menuitem" text={lf("About...")} onClick={this.showAboutDialog} />
             {targetTheme.feedbackUrl ? <a className="ui item" href={targetTheme.feedbackUrl} role="menuitem" title={lf("Give Feedback")} target="_blank" rel="noopener noreferrer" >{lf("Give Feedback")}</a> : undefined}
         </sui.DropdownMenu>;
     }
@@ -519,6 +531,7 @@ export class ProjectsCarousel extends data.Component<ProjectsCarouselProps, Proj
                             url={selectedElement.url}
                             imageUrl={selectedElement.imageUrl}
                             largeImageUrl={selectedElement.largeImageUrl}
+                            videoUrl={selectedElement.videoUrl}
                             youTubeId={selectedElement.youTubeId}
                             buttonLabel={selectedElement.buttonLabel}
                             scr={selectedElement}
@@ -627,6 +640,7 @@ export interface ProjectsDetailProps extends ISettingsProps {
     description?: string;
     imageUrl?: string;
     largeImageUrl?: string;
+    videoUrl?: string;
     youTubeId?: string;
     buttonLabel?: string;
     url?: string;
@@ -711,16 +725,12 @@ export class ProjectsDetail extends data.Component<ProjectsDetailProps, Projects
     }
 
     renderCore() {
-        const { name, description, imageUrl, largeImageUrl, youTubeId, buttonLabel, cardType, tags } = this.props;
+        const { name, description, imageUrl, largeImageUrl, videoUrl, youTubeId, buttonLabel, cardType, tags } = this.props;
 
-        let image = largeImageUrl || imageUrl || (youTubeId && `https://img.youtube.com/vi/${youTubeId}/0.jpg`);
         const tagColors: pxt.Map<string> = pxt.appTarget.appTheme.tagColors || {};
         const descriptions = description && description.split("\n");
-
-        if (/\.mp4$/.test(image) && pxt.BrowserUtils.isElectron()) {
-            // we don't support mp4 in electron, so try out luck as gif
-            image = image.replace(/\.mp4$/, ".gif");
-        }
+        const image = largeImageUrl || imageUrl || (youTubeId && `https://img.youtube.com/vi/${youTubeId}/0.jpg`);
+        const video = !pxt.BrowserUtils.isElectron() && videoUrl;
 
         let clickLabel = lf("Show Instructions");
         if (buttonLabel)
@@ -754,8 +764,8 @@ export class ProjectsDetail extends data.Component<ProjectsDetailProps, Projects
             />
 
         return <div className="ui grid stackable padded">
-            {image && <div className="imagewrapper">
-                {/\.mp4$/.test(image) ? <video className="video" src={image} autoPlay={true} controls={false} loop={true} playsInline={true} />
+            {(video || image) && <div className="imagewrapper">
+                {video ? <video className="video" src={video} autoPlay={true} controls={false} loop={true} playsInline={true} />
                     : <div className="image" style={{ backgroundImage: `url("${image}")` }} />}
             </div>}
             <div className="column twelve wide">
@@ -786,19 +796,6 @@ export class ProjectsDetail extends data.Component<ProjectsDetailProps, Projects
 
 export interface ImportDialogState {
     visible?: boolean;
-}
-
-function githubLogin() {
-    core.showLoading("ghlogin", lf("Logging you in to GitHub..."))
-    const self = window.location.href.replace(/#.*/, "")
-    const state = ts.pxtc.Util.guidGen();
-    pxt.storage.setLocal("oauthState", state)
-    pxt.storage.setLocal("oauthType", "github")
-    const login = pxt.Cloud.getServiceUrl() +
-        "/oauth/login?state=" + state +
-        "&response_type=token&client_id=gh-token&redirect_uri=" +
-        encodeURIComponent(self)
-    window.location.href = login
 }
 
 export class ImportDialog extends data.Component<ISettingsProps, ImportDialogState> {
@@ -891,12 +888,6 @@ export class ImportDialog extends data.Component<ISettingsProps, ImportDialogSta
                             onClick={this.cloneGithub}
                         /> : undefined}
                 </div>
-                {pxt.github.token || true ? undefined :
-                    <p>
-                        <br /><br />
-                        <a className="small" href="#github" role="button" onClick={githubLogin}
-                            aria-label={lf("GitHub login")}>{lf("GitHub login")}</a>
-                    </p>}
             </sui.Modal>
         )
     }
@@ -1069,6 +1060,7 @@ export class NewProjectNameDialog extends ExitAndSaveDialog {
 
 export interface ChooseHwDialogState {
     visible?: boolean;
+    skipDownload?: boolean;
 }
 
 export class ChooseHwDialog extends data.Component<ISettingsProps, ChooseHwDialogState> {
@@ -1077,7 +1069,8 @@ export class ChooseHwDialog extends data.Component<ISettingsProps, ChooseHwDialo
     constructor(props: ISettingsProps) {
         super(props);
         this.state = {
-            visible: false
+            visible: false,
+            skipDownload: false
         }
         this.close = this.close.bind(this);
     }
@@ -1090,8 +1083,8 @@ export class ChooseHwDialog extends data.Component<ISettingsProps, ChooseHwDialo
         this.setState({ visible: false });
     }
 
-    show() {
-        this.setState({ visible: true });
+    show(skipDownload?: boolean) {
+        this.setState({ visible: true, skipDownload: !!skipDownload });
     }
 
     fetchGallery(): pxt.CodeCard[] {
@@ -1115,10 +1108,10 @@ export class ChooseHwDialog extends data.Component<ISettingsProps, ChooseHwDialo
         }, { interactiveConsent: true });
         this.hide()
 
-        pxt.setHwVariant(cfg.name)
+        pxt.setHwVariant(cfg.name, card ? card.name : (cfg.description || cfg.name))
         let editor = this.props.parent
         editor.reloadHeaderAsync()
-            .then(() => editor.compile())
+            .then(() => !this.state.skipDownload && editor.compile())
             .done()
     }
 

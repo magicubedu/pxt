@@ -449,6 +449,7 @@ export enum PullStatus {
     UpToDate,
     GotChanges,
     NeedsCommit,
+    BranchNotFound
 }
 
 const GIT_JSON = pxt.github.GIT_JSON
@@ -466,8 +467,16 @@ export async function pullAsync(hd: Header, checkOnly = false) {
         return PullStatus.NoSourceControl
     let gitjson = JSON.parse(gitjsontext) as GitJson
     let parsed = pxt.github.parseRepoId(gitjson.repo)
-    let sha = await pxt.github.getRefAsync(parsed.fullName, parsed.tag)
-    if (sha == gitjson.commit.sha)
+    const sha = await pxt.github.getRefAsync(parsed.fullName, parsed.tag)
+    if  (!sha) {
+        // 404: branch does not exist, repo is gone or no rights to access repo
+        // try to get the list of heads to see if we can access the project
+        const heads = await pxt.github.listRefsAsync(parsed.fullName, "heads");
+        if (heads && heads.length)
+            return PullStatus.BranchNotFound;
+        else
+            return PullStatus.NoSourceControl; // something is wrong
+    } else if (sha == gitjson.commit.sha)
         return PullStatus.UpToDate
     if (checkOnly)
         return PullStatus.GotChanges
@@ -996,6 +1005,8 @@ export async function importGithubAsync(id: string): Promise<Header> {
         const commit = await pxt.github.getCommitAsync(parsed.fullName, sha)
         if (!commit.tree.tree.find(f => f.path == pxt.CONFIG_NAME)) {
             pxt.log(`github: detected import non-makecode project`)
+            if (pxt.shell.isReadOnly())
+                U.userError(lf("This repository looks empty."));
             isEmpty = true; // needs initialization
             forceTemplateFiles = false;
             // ask user before modifying project
@@ -1013,6 +1024,8 @@ export async function importGithubAsync(id: string): Promise<Header> {
             // this means repo is completely empty;
             // put all default files in there
             pxt.log(`github: detected import empty project`)
+            if (pxt.shell.isReadOnly())
+                U.userError(lf("This repository looks empty."));
             await cloudsync.ensureGitHubTokenAsync();
             await pxt.github.putFileAsync(parsed.fullName, ".gitignore", "# Initial\n");
             isEmpty = true;

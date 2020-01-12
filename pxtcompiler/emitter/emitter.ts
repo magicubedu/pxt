@@ -391,7 +391,7 @@ namespace ts.pxtc {
     }
 
     export function isStatic(node: Declaration) {
-        return node.modifiers && node.modifiers.some(m => m.kind == SK.StaticKeyword)
+        return node && node.modifiers && node.modifiers.some(m => m.kind == SK.StaticKeyword)
     }
 
     export function isReadOnly(node: Declaration) {
@@ -933,6 +933,10 @@ namespace ts.pxtc {
         opts: CompileOptions,
         res: CompileResult,
         entryPoint: string): EmitResult {
+
+        if (compilerHooks.preBinary)
+            compilerHooks.preBinary(program, opts, res)
+
         target = opts.target
         compileOptions = opts
         target.debugMode = !!opts.breakpoints
@@ -951,7 +955,7 @@ namespace ts.pxtc {
         currNodeWave++
 
         if (opts.target.isNative) {
-            if (!opts.hexinfo) {
+            if (!opts.extinfo || !opts.extinfo.hexinfo) {
                 // we may have not been able to compile or download the hex file
                 return {
                     diagnostics: [{
@@ -967,8 +971,8 @@ namespace ts.pxtc {
                 };
             }
 
-            hex.setupFor(opts.target, opts.extinfo || emptyExtInfo(), opts.hexinfo);
-            hex.setupInlineAssembly(opts);
+            hexfile.setupFor(opts.target, opts.extinfo || emptyExtInfo());
+            hexfile.setupInlineAssembly(opts);
         }
 
         let bin = new Binary()
@@ -1087,6 +1091,9 @@ namespace ts.pxtc {
 
         if (resDiags.length == 0)
             resDiags = diagnostics.getDiagnostics()
+
+        if (compilerHooks.postBinary)
+            compilerHooks.postBinary(program, opts, res)
 
         return {
             diagnostics: resDiags,
@@ -1876,6 +1883,7 @@ ${lbl}: .short 0xffff
                     return ir.op(EK.FieldAccess, [emitExpr(node.expression)], idx)
                 }
             } else if (isClassFunction(decl) || decl.kind == SK.MethodSignature) {
+                // TODO this is now supported in runtime; can be probably relaxed (by using GetAccessor code path above)
                 throw userError(9211, lf("cannot use method as lambda; did you forget '()' ?"))
             } else if (decl.kind == SK.FunctionDeclaration) {
                 return emitFunLiteral(decl as FunctionDeclaration)
@@ -2095,7 +2103,7 @@ ${lbl}: .short 0xffff
                     }
                     nm = parse[1]
                     if (opts.target.isNative) {
-                        hex.validateShim(getDeclName(decl), nm, attrs, true, litargs.map(v => true))
+                        hexfile.validateShim(getDeclName(decl), nm, attrs, true, litargs.map(v => true))
                     }
                     return ir.rtcallMask(nm, 0, attrs.callingConvention, litargs)
                 }
@@ -2118,7 +2126,7 @@ ${lbl}: .short 0xffff
             }
 
             if (opts.target.isNative) {
-                hex.validateShim(getDeclName(decl), nm, attrs, hasRet, args.map(isNumberLike))
+                hexfile.validateShim(getDeclName(decl), nm, attrs, hasRet, args.map(isNumberLike))
             }
 
             return rtcallMask(nm, args, attrs)
@@ -2203,52 +2211,57 @@ ${lbl}: .short 0xffff
         ): ir.Expr {
             if (!decl)
                 decl = getDecl(funcExpr) as EmittableAsCall;
-            let isMethod = false
-            let isProperty = false
+            let hasRecv = false
+            let forceMethod = false
+            let isStaticLike = false
+            const noArgs = node === funcExpr
 
             if (decl) {
                 switch (decl.kind) {
-                    // we treat properties via calls
-                    // so we say they are "methods"
+                    // these can be implemented by fields
                     case SK.PropertySignature:
                     case SK.PropertyAssignment:
                     case SK.PropertyDeclaration:
-                        if (!isStatic(decl)) {
-                            isMethod = true
-                            isProperty = true
-                        }
-                        break;
-                    case SK.Parameter:
-                        if (isCtorField(decl)) {
-                            isMethod = true
-                            isProperty = true
-                        }
+                    case SK.MethodSignature:
+                        hasRecv = true
                         break
-                    // TOTO case: case SK.ShorthandPropertyAssignment
-                    // these are the real methods
+                    case SK.Parameter:
+                        if (isCtorField(decl))
+                            hasRecv = true
+                        break
+                    // these are all class members, so cannot be implemented by fields
                     case SK.GetAccessor:
                     case SK.SetAccessor:
-                        isMethod = true
-                        if (target.switches.slowMethods)
-                            isProperty = true
-                        break
                     case SK.MethodDeclaration:
-                    case SK.MethodSignature:
-                        isMethod = true
-                        break;
-                    case SK.ModuleDeclaration:
+                        hasRecv = true
+                        forceMethod = true
+                        isStaticLike = isStatic(decl)
+                        break
                     case SK.FunctionDeclaration:
+                        isStaticLike = true
+                        break
+                    case SK.ModuleDeclaration:
                         // has special handling
                         break;
                     default:
                         decl = null; // no special handling
                         break;
                 }
+            } else {
+                if (funcExpr.kind == SK.PropertyAccessExpression)
+                    hasRecv = true // any-access
             }
-            let attrs = parseComments(decl)
+
+            if (target.switches.slowMethods)
+                forceMethod = false
+
+            const attrs = parseComments(decl)
             let args = callArgs.slice(0)
 
-            if (isMethod && !recv && !isStatic(decl) && funcExpr.kind == SK.PropertyAccessExpression)
+            if (hasRecv && isStatic(decl))
+                hasRecv = false
+
+            if (hasRecv && !recv && funcExpr.kind == SK.PropertyAccessExpression)
                 recv = (<PropertyAccessExpression>funcExpr).expression
 
             if (res.usedArguments && attrs.trackArgs) {
@@ -2283,7 +2296,7 @@ ${lbl}: .short 0xffff
             // first we handle a set of direct cases, note that
             // we are not recursing on funcExpr here, but looking
             // at the associated decl
-            if (decl && decl.kind == SK.FunctionDeclaration) {
+            if (isStaticLike) {
                 let info = getFunctionInfo(<FunctionDeclaration>decl)
 
                 if (!info.location) {
@@ -2306,32 +2319,53 @@ ${lbl}: .short 0xffff
                 ctorArgs.unshift(emitThis(funcExpr))
                 return mkProcCallCore(baseCtor, ctorArgs)
             }
-            if (isMethod) {
-                let isSuper = false
-                if (isStatic(decl)) {
-                    // no additional arguments
-                } else if (recv) {
-                    if (recv.kind == SK.SuperKeyword) {
-                        isSuper = true
-                    }
+
+            if (hasRecv) {
+                U.assert(!isStatic(decl))
+                if (recv) {
                     args.unshift(recv)
-                } else
+                } else {
                     unhandled(node, lf("strange method call"), 9241)
+                }
+                if (!decl) {
+                    // TODO in VT accessor/field/method -> different
+                    U.assert(funcExpr.kind == SK.PropertyAccessExpression);
+                    const fieldName = (funcExpr as PropertyAccessExpression).name.text
+                    // completely dynamic dispatch
+                    return mkMethodCall(args.map((x) => emitExpr(x)), {
+                        ifaceIndex: getIfaceMemberId(fieldName, true),
+                        noArgs
+                    })
+                }
                 let info = getFunctionInfo(decl)
                 if (info.parentClassInfo)
                     markVTableUsed(info.parentClassInfo)
                 markFunctionUsed(decl)
 
-                const needsVCall = info.virtualParent && !isSuper
+                if (recv.kind == SK.SuperKeyword)
+                    return emitPlain()
+
+                const needsVCall = !!info.virtualParent
                 const forceIfaceCall = !!isStackMachine() || !!target.switches.slowMethods
 
                 if (needsVCall && !forceIfaceCall) {
+                    if (decl.kind == SK.MethodDeclaration) {
+                        U.assert(!noArgs)
+                    } else if (decl.kind == SK.GetAccessor || decl.kind == SK.SetAccessor) {
+                        U.assert(noArgs)
+                    } else {
+                        U.assert(false)
+                    }
+
                     U.assert(!bin.finalPass || info.virtualIndex != null, "!bin.finalPass || info.virtualIndex != null")
-                    let r = mkMethodCall(info.parentClassInfo, info.virtualIndex, null, args.map((x) => emitExpr(x)))
-                    if (args[0].kind == SK.ThisKeyword)
-                        (r.data as ir.ProcId).isThis = true
-                    return r
+                    return mkMethodCall(args.map((x) => emitExpr(x)), {
+                        classInfo: info.parentClassInfo,
+                        virtualIndex: info.virtualIndex,
+                        noArgs,
+                        isThis: args[0].kind == SK.ThisKeyword
+                    })
                 }
+
                 if (attrs.shim && !hasShimDummy(decl)) {
                     return emitShim(decl, node, args);
                 } else if (attrs.helper) {
@@ -2355,33 +2389,16 @@ ${lbl}: .short 0xffff
                     if (helperStmt.kind != SK.FunctionDeclaration)
                         userError(9216, lf("helpers.{0} isn't a function", attrs.helper))
                     decl = <FunctionDeclaration>helperStmt;
-                    let sig = checker.getSignatureFromDeclaration(decl)
-                    let tp = sig.getTypeParameters() || []
                     markFunctionUsed(decl)
                     return emitPlain();
-                } else if (isProperty) {
-                    if (node == funcExpr) {
-                        // in this special base case, we have property access recv.foo
-                        // where recv is a map obejct
-                        let name = getName(decl)
-                        let res = mkMethodCall(null, null, getIfaceMemberId(name, true), args.map((x) => emitExpr(x)))
-                        let pid = res.data as ir.ProcId
-                        if (args.length == 2) {
-                            pid.mapMethod = "pxtrt::mapSet"
-                        } else {
-                            pid.mapMethod = "pxtrt::mapGet"
-                        }
-                        return res
-                    } else {
-                        // in this case, recv.foo represents a function/lambda
-                        // so the receiver is not needed, as we have already done
-                        // the property lookup to get the lambda
-                        args.shift()
-                    }
-                } else if (needsVCall || decl.kind == SK.MethodSignature || (target.switches.slowMethods && !isStatic(decl) && !isSuper)) {
-                    let name = getName(decl)
-                    return mkMethodCall(null, null, getIfaceMemberId(name, true), args.map((x) => emitExpr(x)))
+                } else if (needsVCall || target.switches.slowMethods || !forceMethod) {
+                    return mkMethodCall(args.map((x) => emitExpr(x)), {
+                        ifaceIndex: getIfaceMemberId(getName(decl), true),
+                        isSet: noArgs && args.length == 2,
+                        noArgs
+                    })
                 } else {
+                    U.assert(decl.kind != SK.MethodSignature)
                     return emitPlain();
                 }
             }
@@ -2396,7 +2413,8 @@ ${lbl}: .short 0xffff
             // here's where we will recurse to generate funcExpr
             args.unshift(funcExpr)
 
-            return mkMethodCall(null, -1, null, args.map(x => emitExpr(x)))
+            U.assert(!noArgs)
+            return mkMethodCall(args.map(x => emitExpr(x)), { virtualIndex: -1, noArgs })
         }
 
         function mkProcCallCore(proc: ir.Procedure, args: ir.Expr[]) {
@@ -2409,14 +2427,8 @@ ${lbl}: .short 0xffff
             return ir.op(EK.ProcCall, args, data)
         }
 
-        function mkMethodCall(ci: ClassInfo, vidx: number, ifaceIdx: number, args: ir.Expr[]) {
-            let data: ir.ProcId = {
-                proc: null,
-                virtualIndex: vidx,
-                ifaceIndex: ifaceIdx,
-                classInfo: ci
-            }
-            return ir.op(EK.ProcCall, args, data)
+        function mkMethodCall(args: ir.Expr[], info: ir.ProcId) {
+            return ir.op(EK.ProcCall, args, info)
         }
 
         function lookupProc(decl: ts.Declaration) {
@@ -3004,7 +3016,7 @@ ${lbl}: .short 0xffff
                 if (attrs.shim[0] == "@")
                     return undefined;
                 if (opts.target.isNative) {
-                    hex.validateShim(getDeclName(node),
+                    hexfile.validateShim(getDeclName(node),
                         attrs.shim,
                         attrs,
                         funcHasReturn(node),
@@ -3034,15 +3046,15 @@ ${lbl}: .short 0xffff
 
         function emitDeleteExpression(node: DeleteExpression) {
             let objExpr: Expression
-            let keyExpr: () => ir.Expr
+            let keyExpr: Expression
             if (node.expression.kind == SK.PropertyAccessExpression) {
                 const inner = node.expression as PropertyAccessExpression
                 objExpr = inner.expression
-                keyExpr = () => emitStringLiteral(inner.name.text)
+                keyExpr = irToNode(emitStringLiteral(inner.name.text))
             } else if (node.expression.kind == SK.ElementAccessExpression) {
                 const inner = node.expression as ElementAccessExpression
                 objExpr = inner.expression
-                keyExpr = () => emitExpr(inner.argumentExpression)
+                keyExpr = inner.argumentExpression
             } else {
                 throw userError(9276, lf("expression not supported as argument to 'delete'"))
             }
@@ -3054,11 +3066,7 @@ ${lbl}: .short 0xffff
             if (isArrayType(objExprType))
                 throw userError(9277, lf("'delete' not supported on array"))
 
-            const args = [
-                emitExpr(objExpr),
-                keyExpr()
-            ]
-            return rtcallMaskDirect("pxtrt::mapDeleteByString", args)
+            return rtcallMask("pxtrt::mapDeleteByString", [objExpr, keyExpr], null)
         }
         function emitTypeOfExpression(node: TypeOfExpression) {
             return rtcallMask("pxt::typeOf", [node.expression], null)
@@ -3070,39 +3078,36 @@ ${lbl}: .short 0xffff
             if (folded)
                 return emitLit(folded.val)
 
-            let tp = typeOf(node.operand)
-            if (node.operator == SK.ExclamationToken) {
-                return fromBool(ir.rtcall("Boolean_::bang", [emitCondition(node.operand)]))
-            }
-
-            if (isNumberType(tp)) {
-                switch (node.operator) {
-                    case SK.PlusPlusToken:
-                        return emitIncrement(node.operand, "numops::adds", false)
-                    case SK.MinusMinusToken:
-                        return emitIncrement(node.operand, "numops::subs", false)
-                    case SK.MinusToken: {
-                        let inner = emitExpr(node.operand)
-                        let v = valueToInt(inner)
-                        if (v != null)
-                            return emitLit(-v)
+            switch (node.operator) {
+                case SK.ExclamationToken:
+                    return fromBool(ir.rtcall("Boolean_::bang", [emitCondition(node.operand)]))
+                case SK.PlusPlusToken:
+                    return emitIncrement(node.operand, "numops::adds", false)
+                case SK.MinusMinusToken:
+                    return emitIncrement(node.operand, "numops::subs", false)
+                case SK.PlusToken:
+                case SK.MinusToken: {
+                    let inner = emitExpr(node.operand)
+                    let v = valueToInt(inner)
+                    if (v != null)
+                        return emitLit(-v)
+                    if (node.operator == SK.MinusToken)
                         return emitIntOp("numops::subs", emitLit(0), inner)
-                    }
-                    case SK.PlusToken:
-                        return emitExpr(node.operand) // no-op
-                    case SK.TildeToken: {
-                        let inner = emitExpr(node.operand)
-                        let v = valueToInt(inner)
-                        if (v != null)
-                            return emitLit(~v)
-                        return rtcallMaskDirect(mapIntOpName("numops::bnot"), [inner]);
-                    }
-                    default:
-                        break
+                    else
+                        // force conversion to number
+                        return emitIntOp("numops::subs", inner, emitLit(0))
                 }
+                case SK.TildeToken: {
+                    let inner = emitExpr(node.operand)
+                    let v = valueToInt(inner)
+                    if (v != null)
+                        return emitLit(~v)
+                    return rtcallMaskDirect(mapIntOpName("numops::bnot"), [inner]);
+                }
+                default:
+                    throw unhandled(node, lf("unsupported prefix unary operation"), 9245)
             }
 
-            throw unhandled(node, lf("unsupported prefix unary operation"), 9245)
         }
 
         function doNothing() { }
@@ -3624,7 +3629,7 @@ ${lbl}: .short 0xffff
 
         function rtcallMask(name: string, args: Expression[], attrs: CommentAttrs, append: Expression[] = null) {
             let fmt: string[] = []
-            let inf = hex.lookupFunc(name)
+            let inf = hexfile.lookupFunc(name)
 
             if (isThumb()) {
                 let inf2 = U.lookup(thumbFuns, name)
@@ -4425,8 +4430,10 @@ ${lbl}: .short 0xffff
                 const info = getClassInfo(objType)
                 res = ir.op(EK.FieldAccess, [objRef], fieldIndexCore(info, getFieldInfo(info, fieldName)))
             } else {
-                res = mkMethodCall(null, null, getIfaceMemberId(fieldName, true), [objRef]);
-                (res.data as ir.ProcId).mapMethod = "pxtrt::mapGet"
+                res = mkMethodCall([objRef], {
+                    ifaceIndex: getIfaceMemberId(fieldName, true),
+                    noArgs: true
+                })
             }
             return [res, myType]
         }

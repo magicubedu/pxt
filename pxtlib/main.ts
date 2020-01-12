@@ -8,6 +8,7 @@
 
 namespace pxt.perf {
     // These functions are defined in docfiles/pxtweb/cookieCompliance.ts
+    export declare let perfReportLogged: boolean;
     export declare function report(): void;
     export declare function recordMilestone(msg: string, time?: number): void;
     export declare function measureStart(name: string): void;
@@ -38,9 +39,6 @@ namespace pxt {
         error(msg: string): any;
         disconnectAsync(): Promise<void>;
     }
-
-    export type ConversionPass = (opts: pxtc.CompileOptions) => pxtc.KsDiagnostic[]
-    export let conversionPasses: ConversionPass[] = []
 
     export let mkTCPSocket: (host: string, port: number) => TCPIO;
 
@@ -169,8 +167,6 @@ namespace pxt {
         U.jsonCopyFrom(comp.switches, savedSwitches)
         // JS ref counting currently not supported
         comp.jsRefCounting = false
-        if (!comp.vtableShift)
-            comp.vtableShift = 2
         if (!comp.useUF2 && !comp.useELF && comp.noSourceInFlash == undefined)
             comp.noSourceInFlash = true // no point putting sources in hex to be flashed
         if (comp.utf8 === undefined)
@@ -229,9 +225,9 @@ namespace pxt {
         }
     }
 
-    export function reloadAppTargetVariant() {
+    export function reloadAppTargetVariant(temporary = false) {
         pxt.perf.measureStart("reloadAppTargetVariant")
-        const curr = JSON.stringify(appTarget);
+        const curr = temporary ? "" : JSON.stringify(appTarget);
         appTarget = U.clone(savedAppTarget)
         if (appTargetVariant) {
             const v = appTarget.variants && appTarget.variants[appTargetVariant];
@@ -242,17 +238,20 @@ namespace pxt {
         }
         patchAppTarget();
         // check if apptarget changed
-        if (onAppTargetChanged && curr != JSON.stringify(appTarget))
+        if (!temporary && onAppTargetChanged && curr != JSON.stringify(appTarget))
             onAppTargetChanged();
         pxt.perf.measureEnd("reloadAppTargetVariant")
     }
 
     // this is set by compileServiceVariant in pxt.json
-    export function setAppTargetVariant(variant: string, force?: boolean): void {
+    export function setAppTargetVariant(variant: string, opts: {
+        force?: boolean,
+        temporary?: boolean
+    } = {}): void {
         pxt.debug(`app variant: ${variant}`);
-        if (!force && (appTargetVariant === variant || (!appTargetVariant && !variant))) return;
+        if (!opts.force && (appTargetVariant === variant || (!appTargetVariant && !variant))) return;
         appTargetVariant = variant
-        reloadAppTargetVariant();
+        reloadAppTargetVariant(opts.temporary);
     }
 
     // notify when app target was changed
@@ -262,12 +261,15 @@ namespace pxt {
     // the pxt.json of hw---variant would generally specify compileServiceVariant
     // This is controlled by ?hw=variant or by configuration created by dragging `config.bin`
     // into editor.
-    export function setHwVariant(variant: string) {
+    export function setHwVariant(variant: string, name?: string) {
         variant = variant.replace(/.*---/, "")
-        if (/^[\w\-]+$/.test(variant))
-            hwVariant = variant
-        else
-            hwVariant = null
+        if (/^[\w\-]+$/.test(variant)) {
+            hwVariant = variant;
+            hwName = name || variant;
+        } else {
+            hwVariant = null;
+            hwName = null;
+        }
     }
 
     export function hasHwVariants(): boolean {
@@ -467,7 +469,7 @@ namespace pxt {
 
         if (trg.nativeType == ts.pxtc.NATIVE_TYPE_VM)
             return ts.pxtc.BINARY_PXT64
-        else if (trg.useUF2)
+        else if (trg.useUF2 && !trg.switches.rawELF)
             return ts.pxtc.BINARY_UF2
         else if (trg.useELF)
             return ts.pxtc.BINARY_ELF

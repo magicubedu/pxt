@@ -1319,6 +1319,8 @@ export function internalBuildTargetAsync(options: BuildTargetOptions = {}): Prom
 
     return initPromise
         .then(() => { copyCommonSim(); return simshimAsync() })
+        .then(() => buildFolderAsync('compiler', true, 'compiler'))
+        .then(() => fillInCompilerExtension(pxt.appTarget))
         .then(() => options.rebundle ? buildTargetCoreAsync({ quick: true }) : buildTargetCoreAsync(options))
         .then(() => buildSimAsync())
         .then(() => buildFolderAsync('cmds', true))
@@ -1706,6 +1708,8 @@ function saveThemeJson(cfg: pxt.TargetBundle, localDir?: boolean, packaged?: boo
                             gcard.imageUrl = card.imageUrl;
                         if (card.largeImageUrl && !gcard.largeImageUrl)
                             gcard.largeImageUrl = card.largeImageUrl;
+                        if (card.videoUrl && !gcard.videoUrl)
+                            gcard.videoUrl = card.videoUrl;
                         const url = card.url || card.learnMoreUrl || card.buyUrl || (card.youTubeId && `https://youtu.be/${card.youTubeId}`);
                         tocmd += `  * [${card.name || card.title}](${url})
 `;
@@ -2073,7 +2077,7 @@ function buildTargetCoreAsync(options: BuildTargetOptions = {}) {
     return buildWebStringsAsync()
         .then(() => options.quick ? null : internalGenDocsAsync(false, true))
         .then(() => forEachBundledPkgAsync((pkg, dirname) => {
-            pxt.log(`building ${dirname}`);
+            pxt.log(`building bundled ${dirname}`);
             let isPrj = /prj$/.test(dirname);
             const isHw = /hw---/.test(dirname);
             const config = nodeutil.readPkgConfig(".")
@@ -2106,7 +2110,7 @@ function buildTargetCoreAsync(options: BuildTargetOptions = {}) {
 
                         // Place the base HEX image in the hex cache if necessary
                         let sha = options.extinfo.sha;
-                        let hex: string[] = options.hexinfo.hex;
+                        let hex: string[] = options.extinfo.hexinfo.hex;
                         let hexFile = path.join(hexCachePath, sha + ".hex");
 
                         if (fs.existsSync(hexFile)) {
@@ -2152,9 +2156,10 @@ function buildTargetCoreAsync(options: BuildTargetOptions = {}) {
             if (coreInfo) {
                 // Don't bother with dependencies of the core package
                 if (coreDependencies) {
-                    for (const dep of coreDependencies) {
-                        builtInfo["libs/" + dep].apis.byQName = {};
-                    }
+                    coreDependencies
+                        .map(dep => builtInfo["libs/" + dep])
+                        .filter(bi => !!bi)
+                        .forEach(bi => bi.apis.byQName = {});
                 }
 
                 Object.keys(builtInfo).filter(k => k !== corepkg).map(k => builtInfo[k]).forEach(info => {
@@ -2178,6 +2183,7 @@ function buildTargetCoreAsync(options: BuildTargetOptions = {}) {
                 targetCrowdinBranch: targetCrowdinBranch()
             }
             saveThemeJson(cfg, options.localDir, options.packaged)
+            fillInCompilerExtension(cfg);
 
             const webmanifest = buildWebManifest(cfg)
             const targetjson = nodeutil.stringify(cfg)
@@ -2189,6 +2195,8 @@ function buildTargetCoreAsync(options: BuildTargetOptions = {}) {
             delete targetlight.bundledpkgs;
             delete targetlight.appTheme;
             delete targetlight.apiInfo;
+            if (targetlight.compile)
+                delete targetlight.compile.compilerExtension;
             const targetlightjson = nodeutil.stringify(targetlight);
             nodeutil.writeFileSync("built/targetlight.json", targetlightjson)
             nodeutil.writeFileSync("built/sim.webmanifest", nodeutil.stringify(webmanifest))
@@ -2196,6 +2204,15 @@ function buildTargetCoreAsync(options: BuildTargetOptions = {}) {
         .then(() => {
             console.log("target.json built.")
         })
+}
+
+function fillInCompilerExtension(cfg: pxt.TargetBundle) {
+    const compPath = path.join(nodeutil.targetDir, "built/compiler.js")
+    if (fs.existsSync(compPath)) {
+        const src = fs.readFileSync(compPath, "utf8");
+        // remove top-level namespace declarations, so it evals() correctly
+        cfg.compile.compilerExtension = src.replace(/^var \w+;$/gm, "");
+    }
 }
 
 function deleteRedundantSymbols(core: pxt.Map<pxtc.SymbolInfo | pxt.JRes>, trg: pxt.Map<pxtc.SymbolInfo | pxt.JRes>) {
@@ -2584,7 +2601,7 @@ class SnippetHost implements pxt.Host {
     }
 
     getHexInfoAsync(extInfo: pxtc.ExtensionInfo): Promise<pxtc.HexInfo> {
-        return pxt.hex.getHexInfoAsync(this, extInfo)
+        return pxt.hexloader.getHexInfoAsync(this, extInfo)
     }
 
     cacheStoreAsync(id: string, val: string): Promise<void> {
@@ -2661,13 +2678,13 @@ class Host
             }
 
         try {
-            pxt.debug(`reading ${resolved}`)
+            // pxt.debug(`reading ${resolved}`)
             return fs.readFileSync(resolved, "utf8")
         } catch (e) {
             if (!skipAdditionalFiles && module.config) {
                 for (let addPath of module.config.additionalFilePaths || []) {
                     try {
-                        pxt.debug(`try read: ${path.join(dir, addPath, filename)}`)
+                        // pxt.debug(`try read: ${path.join(dir, addPath, filename)}`)
                         return fs.readFileSync(path.join(dir, addPath, filename), "utf8")
                     } catch (e) {
                     }
@@ -2754,8 +2771,9 @@ class Host
         }
 
         if (!forceLocalBuild && (extInfo.onlyPublic || forceCloudBuild))
-            return pxt.hex.getHexInfoAsync(this, extInfo)
+            return pxt.hexloader.getHexInfoAsync(this, extInfo)
 
+        setBuildEngine()
         return build.buildHexAsync(build.thisBuild, mainPkg, extInfo, forceBuild)
             .then(() => build.thisBuild.patchHexInfo(extInfo))
     }
@@ -3238,8 +3256,7 @@ function simulatorCoverage(pkgCompileRes: pxtc.CompileResult, pkgOpts: pxtc.Comp
         sourceFiles: sources,
         target: mainPkg.getTargetOptions(),
         ast: true,
-        noEmit: true,
-        hexinfo: null
+        noEmit: true
     }
 
     opts.target.isNative = false
@@ -3703,7 +3720,7 @@ function decompileAsyncWorker(f: string, dependency?: string): Promise<string> {
     });
 }
 
-function testSnippetsAsync(snippets: CodeSnippet[], re?: string, pycheck?: boolean): Promise<void> {
+function testSnippetsAsync(snippets: CodeSnippet[], re?: string, pyStrictSyntaxCheck?: boolean): Promise<void> {
     console.log(`### TESTING ${snippets.length} CodeSnippets`)
     pxt.github.forceProxy = true; // avoid throttling in CI machines
     let filenameMatch: RegExp;
@@ -3732,7 +3749,7 @@ function testSnippetsAsync(snippets: CodeSnippet[], re?: string, pycheck?: boole
             filename: f,
             diagnostics: infos
         })
-        infos.forEach(info => pxt.log(`${f}:(${info.line},${info.start}): ${info.category} ${info.messageText}`));
+        infos.forEach(info => pxt.log(`${f}:(${info.line},${info.column}): ${info.category} ${info.messageText}`));
     }
     return Promise.map(snippets, (snippet: CodeSnippet) => {
         const name = snippet.name;
@@ -3821,7 +3838,7 @@ function testSnippetsAsync(snippets: CodeSnippet[], re?: string, pycheck?: boole
                         opts.target.preferredEditor = pxt.PYTHON_PROJECT_NAME
                         let ts2Res = pxt.py.py2ts(opts)
 
-                        let ts2 = ts2Res.generated["main.ts"];
+                        let ts2 = ts2Res.outfiles["main.ts"];
 
                         if (!ts2) {
                             console.log("py2ts error!")
@@ -3870,7 +3887,7 @@ function testSnippetsAsync(snippets: CodeSnippet[], re?: string, pycheck?: boole
                                 .filter(l => l)
                                 .join("")
 
-                        if (pycheck) {
+                        if (pyStrictSyntaxCheck) {
                             let cmp1 = getComparisonString(ts1)
                             let cmp2 = getComparisonString(ts2)
                             let mismatch = cmp1 != cmp2
@@ -4029,7 +4046,13 @@ function dumplogAsync(c: commandParser.ParsedCommand) {
 function dumpheapAsync(c: commandParser.ParsedCommand) {
     ensurePkgDir()
     return mainPkg.loadAsync()
-        .then(() => gdb.dumpheapAsync())
+        .then(() => gdb.dumpheapAsync(c.args[0]))
+}
+
+function dumpmemAsync(c: commandParser.ParsedCommand) {
+    ensurePkgDir()
+    return mainPkg.loadAsync()
+        .then(() => gdb.dumpMemAsync(c.args[0]))
 }
 
 async function buildDalDTSAsync(c: commandParser.ParsedCommand) {
@@ -4077,6 +4100,7 @@ function buildCoreAsync(buildOpts: BuildCoreOptions): Promise<pxtc.CompileResult
     let compileResult: pxtc.CompileResult;
     ensurePkgDir();
     pxt.log(`building ${process.cwd()}`)
+    const config = nodeutil.readPkgConfig(process.cwd());
     return prepBuildOptionsAsync(buildOpts.mode, false, buildOpts.ignoreTests)
         .then((opts) => {
             compileOptions = opts;
@@ -4104,8 +4128,10 @@ function buildCoreAsync(buildOpts: BuildCoreOptions): Promise<pxtc.CompileResult
                 }
             });
 
-            reportDiagnostics(res.diagnostics);
-            if (!res.success && buildOpts.mode != BuildOption.GenDocs) {
+            const shouldExit = !res.success && buildOpts.mode != BuildOption.GenDocs
+            if (shouldExit || !config.partial)
+                reportDiagnostics(res.diagnostics);
+            if (shouldExit) {
                 process.exit(1)
             }
 
@@ -4275,6 +4301,7 @@ interface SpriteInfo {
     ySpacing?: number;
     tags?: string;
     frames?: string[];
+    blockIdentity?: string;
 }
 
 
@@ -4473,7 +4500,7 @@ function buildJResSpritesCoreAsync(parsed: commandParser.ParsedCommand) {
                     jresources[key] = data as any
                 }
 
-                ts += `    //% fixedInstance jres blockIdentity=${metaInfo.blockIdentity}\n`
+                ts += `    //% fixedInstance jres blockIdentity=${info.blockIdentity || metaInfo.blockIdentity}\n`
                 if (info.tags || metaInfo.tags) {
                     const tags = `${metaInfo.tags || ""} ${info.tags || ""}`;
                     ts += `    //% tags="${tags.trim()}"\n`;
@@ -4776,12 +4803,12 @@ export function hexdumpAsync(c: commandParser.ParsedCommand) {
         let r = pxtc.UF2.toBin(buf as any)
         if (r) {
             console.log("UF2 file detected.")
-            console.log(pxtc.hex.hexDump(r.buf, r.start))
+            console.log(pxtc.hexDump(r.buf, r.start))
             return Promise.resolve()
         }
     }
     console.log("Binary file assumed.")
-    console.log(pxtc.hex.hexDump(buf))
+    console.log(pxtc.hexDump(buf))
     return Promise.resolve()
 }
 
@@ -5080,13 +5107,32 @@ function internalCheckDocsAsync(compileSnippets?: boolean, re?: string, fix?: bo
                             const tutorial = pxt.tutorial.parseTutorial(tutorialMd);
                             const pkgs: pxt.Map<string> = { "blocksprj": "*" };
                             pxt.Util.jsonMergeFrom(pkgs, pxt.gallery.parsePackagesFromMarkdown(tutorialMd) || {});
-                            addSnippet(<CodeSnippet>{
-                                name: card.name,
-                                code: tutorial.code,
-                                type: "blocks",
-                                ext: "ts",
-                                packages: pkgs
-                            }, "tutorial" + gal.name, cardIndex);
+
+                            if (tutorial.code.indexOf("namespace") !== -1) {
+                                // Handles tilemaps and spritekinds
+                                tutorial.steps
+                                    .filter(step => !!step.contentMd)
+                                    .forEach((step, stepIndex) => getCodeSnippets(`${gal.name}-${stepIndex}`, step.contentMd)
+                                        .forEach((snippet, snippetIndex) => {
+                                            snippet.packages = pkgs;
+                                            addSnippet(
+                                                snippet,
+                                                "tutorial" + `${gal.name}-${stepIndex}-${snippetIndex}`,
+                                                cardIndex
+                                            )
+                                        })
+                                    );
+                            }
+                            else {
+                                addSnippet(<CodeSnippet>{
+                                    name: card.name,
+                                    code: tutorial.code,
+                                    type: "blocks",
+                                    ext: "ts",
+                                    packages: pkgs
+                                }, "tutorial" + gal.name, cardIndex);
+                            }
+
                             break;
                         }
                         case "example": {
@@ -5945,10 +5991,18 @@ ${pxt.crowdin.KEY_VARIABLE} - crowdin key
     p.defineCommand({
         name: "heap",
         help: "attempt to dump GC and codal heap log using openocd",
-        argString: "",
+        argString: "[<memdump-file.bin>]",
         aliases: ["dumpheap"],
         advanced: true,
     }, dumpheapAsync);
+
+    p.defineCommand({
+        name: "memdump",
+        help: "attempt to dump raw memory image using openocd",
+        argString: "<memdump-file.bin>",
+        aliases: ["dumpmem"],
+        advanced: true,
+    }, dumpmemAsync);
 
     p.defineCommand({
         name: "builddaldts",
@@ -6136,6 +6190,7 @@ export function mainCli(targetDir: string, args: string[] = process.argv.slice(2
     nodeutil.setTargetDir(targetDir);
 
     let trg = nodeutil.getPxtTarget()
+    fillInCompilerExtension(trg)
     pxt.setAppTarget(trg)
 
     pxt.setCompileSwitches(process.env["PXT_COMPILE_SWITCHES"])

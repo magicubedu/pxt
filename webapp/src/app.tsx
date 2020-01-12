@@ -220,6 +220,8 @@ export class ProjectView
         let active = document.visibilityState == 'visible';
         pxt.debug(`page visibility: ${active}`)
         this.setState({ active: active });
+        data.invalidate('pkg-git-pull-status');
+        data.invalidate('pkg-git-pr');
 
         if (!active && this.state.autoRun) {
             if (simulator.driver.state == pxsim.SimulatorState.Running) {
@@ -532,18 +534,23 @@ export class ProjectView
     }
 
     openPythonAsync(): Promise<void> {
-        // convert python to typescript, if same as current source, skip decompilation
-        const tssrc = pkg.mainEditorPkg().files["main.ts"].content;
-        return this.textEditor.convertPythonToTypeScriptAsync()
-            .then(pysrc => {
-                if (pysrc == tssrc) {
-                    // decompiled python is same current typescript, go back to python without ts->py conversion
-                    pxt.debug(`ts -> py shortcut`)
-                    this.setFile(pkg.mainEditorPkg().files["main.py"]);
-                    return Promise.resolve();
-                }
-                else return this.convertTypeScriptToPythonAsync();
-            });
+        const pySrcFile = pkg.mainEditorPkg().files["main.py"];
+        if (pySrcFile) { // do we have any python yet?
+            // convert python to typescript, if same as current source, skip decompilation
+            const tsSrc = pkg.mainEditorPkg().files["main.ts"].content;
+            return this.textEditor.convertPythonToTypeScriptAsync()
+                .then(pyAsTsSrc => {
+                    if (pyAsTsSrc == tsSrc) {
+                        // decompiled python is same current typescript, go back to python without ts->py conversion
+                        pxt.debug(`ts -> py shortcut`)
+                        this.setFile(pySrcFile);
+                        return Promise.resolve();
+                    }
+                    else return this.convertTypeScriptToPythonAsync();
+                });
+        } else {
+            return this.convertTypeScriptToPythonAsync();
+        }
     }
 
     private convertTypeScriptToPythonAsync() {
@@ -641,6 +648,10 @@ export class ProjectView
             }
             if (this.blocksEditor && this.blocksEditor.isDropdownDivVisible()) {
                 pxt.debug(`sim: skip blocks auto, field editor is open`);
+                return;
+            }
+            if (this.editor === this.serialEditor) {
+                pxt.debug(`sim: don't restart when entering console view`)
                 return;
             }
             this.runSimulator({ debug: !!this.state.debugging, background: true });
@@ -3023,9 +3034,9 @@ export class ProjectView
         this.scriptSearch.showExperiments();
     }
 
-    showChooseHwDialog() {
+    showChooseHwDialog(skipDownload?: boolean) {
         if (this.chooseHwDialog)
-            this.chooseHwDialog.show()
+            this.chooseHwDialog.show(skipDownload)
     }
 
     showRecipesDialog() {
@@ -3082,7 +3093,7 @@ export class ProjectView
 
         if (/^\//.test(tutorialId)) {
             filename = tutorialTitle || tutorialId.split('/').reverse()[0].replace('-', ' '); // drop any kind of sub-paths
-            p = pxt.Cloud.markdownAsync(tutorialId, pxt.Util.userLanguage(), pxt.Util.localizeLive)
+            p = pxt.Cloud.markdownAsync(tutorialId)
                 .then(md => {
                     if (md) {
                         dependencies = pxt.gallery.parsePackagesFromMarkdown(md);
@@ -3788,6 +3799,21 @@ function handleHash(hash: { cmd: string; arg: string }, loading: boolean): boole
         case "reload": // need to reload last project - handled later in the load process
             if (loading) pxt.BrowserUtils.changeHash("");
             return false;
+        case "github": { // follows a github OAuth roundtrip
+            const [hid, ghCmd] = hash.arg.split(':', 2);
+            const hd = workspace.getHeader(hid);
+            if (hd) {
+                switch (ghCmd) {
+                    case "create-repository":
+                        pxt.BrowserUtils.changeHash("");
+                        theEditor.loadHeaderAsync(hd)
+                            .then(() => cloudsync.githubProvider().createRepositoryAsync(hd.name, hd))
+                            .done(r => r && theEditor.reloadHeaderAsync())
+                        return true;
+                }
+            }
+            break;
+        }
     }
 
     return false;
@@ -3812,6 +3838,7 @@ function isProjectRelatedHash(hash: { cmd: string; arg: string }): boolean {
         case "edit":
         case "sandboxproject":
         case "project":
+        case "github":
             return true;
         default:
             return false;
@@ -3821,8 +3848,12 @@ function isProjectRelatedHash(hash: { cmd: string; arg: string }): boolean {
 async function importGithubProject(repoid: string) {
     core.showLoading("loadingheader", lf("importing GitHub project..."));
     try {
+        // normalize for precise matching
+        repoid = pxt.github.normalizeRepoId(repoid);
         // try to find project with same id
-        let hd = workspace.getHeaders().find(h => h.githubId == repoid);
+        let hd = workspace.getHeaders().find(h => h.githubId &&
+            pxt.github.normalizeRepoId(h.githubId) == repoid
+        );
         if (!hd)
             hd = await workspace.importGithubAsync(repoid)
         if (hd)
@@ -3966,8 +3997,8 @@ document.addEventListener("DOMContentLoaded", () => {
     appcache.init(() => theEditor.reloadEditor());
     blocklyFieldView.init();
 
-    pxt.hex.showLoading = (msg) => core.showLoading("hexcloudcompiler", msg);
-    pxt.hex.hideLoading = () => core.hideLoading("hexcloudcompiler");
+    pxt.hexloader.showLoading = (msg) => core.showLoading("hexcloudcompiler", msg);
+    pxt.hexloader.hideLoading = () => core.hideLoading("hexcloudcompiler");
     pxt.docs.requireMarked = () => require("marked");
     const importHex = (hex: pxt.cpp.HexFile, options?: pxt.editor.ImportFileOptions) => theEditor.importHex(hex, options);
 
@@ -4072,10 +4103,6 @@ document.addEventListener("DOMContentLoaded", () => {
         })
         .then(() => pxt.winrt.hasActivationProjectAsync())
         .then((hasWinRTProject) => {
-            const ent = theEditor.settings.fileHistory.filter(e => !!workspace.getHeader(e.id))[0];
-            let hd = workspace.getHeaders()[0];
-            if (ent) hd = workspace.getHeader(ent.id);
-
             if (theEditor.shouldShowHomeScreen() && !hasWinRTProject) {
                 return Promise.resolve();
             } else {
@@ -4090,6 +4117,9 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             // default handlers
+            const ent = theEditor.settings.fileHistory.filter(e => !!workspace.getHeader(e.id))[0];
+            let hd = workspace.getHeaders()[0];
+            if (ent) hd = workspace.getHeader(ent.id);
             if (hd) return theEditor.loadHeaderAsync(hd, theEditor.state.editorState)
             else theEditor.newProject();
             return Promise.resolve();

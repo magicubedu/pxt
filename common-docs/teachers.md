@@ -77,3 +77,8 @@ To get the course book, you combine the two with `/--docs#book:` in between them
     https://arcade.makecode.com/--docs#book:/courses/csintro1
 
 and after a few moments of compiling the page, you should have a complete printable book for the course!
+
+## GitHub
+
+MakeCode support storing projects in [GitHub](/github), a popular web site for hosting code and collaborative software development.
+The [GitHub Explorer](https://makecode.com/github-explorer) allows to list and review repositories from a user seamlessly.
