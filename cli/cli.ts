@@ -1492,9 +1492,11 @@ interface CiBuildInfo {
 function ciBuildInfo(): CiBuildInfo {
     const isTravis = (process.env.TRAVIS === "true");
     const isGithubAction = (!!process.env.GITHUB_ACTIONS);
+    const isAzurePipelines = (process.env.TF_BUILD === "True");
 
     if (isTravis) return travisInfo();
     else if (isGithubAction) return githubActionInfo();
+    else if (isAzurePipelines) return travisInfo(); // azure pipelines uses same info
     else {
         // local build
         return {
@@ -1623,6 +1625,10 @@ function processLf(filename: string, translationStrings: pxt.Map<string>): void 
         })
 }
 
+function getGalleryUrl(props: pxt.GalleryProps | string): string {
+    return typeof props === "string" ? props : props.url
+}
+
 function saveThemeJson(cfg: pxt.TargetBundle, localDir?: boolean, packaged?: boolean) {
     cfg.appTheme.id = cfg.id
     cfg.appTheme.title = cfg.title
@@ -1691,9 +1697,10 @@ function saveThemeJson(cfg: pxt.TargetBundle, localDir?: boolean, packaged?: boo
 `;
             Object.keys(targetConfig.galleries).forEach(k => {
                 targetStrings[k] = k;
-                const gallerymd = nodeutil.resolveMd(docsRoot, targetConfig.galleries[k]);
+                const galleryUrl = getGalleryUrl(targetConfig.galleries[k])
+                const gallerymd = nodeutil.resolveMd(docsRoot, galleryUrl);
                 const gallery = pxt.gallery.parseGalleryMardown(gallerymd);
-                const gurl = `/${targetConfig.galleries[k].replace(/^\//, '')}`;
+                const gurl = `/${galleryUrl.replace(/^\//, '')}`;
                 tocmd +=
                     `* [${k}](${gurl})
 `;
@@ -3777,17 +3784,40 @@ function testSnippetsAsync(snippets: CodeSnippet[], re?: string, pyStrictSyntaxC
             return Promise.resolve();
         }
 
-        let inFiles = { "main.ts": snippet.code, "main.py": "", "main.blocks": "" }
+        let isPy = snippet.ext === "py"
+        let inFiles;
+        if (isPy)
+            inFiles = { "main.ts": "", "main.py": snippet.code, "main.blocks": "" }
+        else
+            inFiles = { "main.ts": snippet.code, "main.py": "", "main.blocks": "" }
         const host = new SnippetHost("snippet" + name, inFiles, snippet.packages);
         host.cache = cache;
         const pkg = new pxt.MainPackage(host);
         return pkg.installAllAsync()
             .then(() => pkg.getCompileOptionsAsync().then(opts => {
                 opts.ast = true
-                let resp = pxtc.compile(opts)
+                let resp: { outfiles: Map<string>, success: boolean, diagnostics: pxtc.KsDiagnostic[], ast?: ts.Program };
+                if (isPy) {
+                    opts.target.preferredEditor = pxt.JAVASCRIPT_PROJECT_NAME
+                    const stsCompRes = pxtc.compile(opts);
+                    const apisInfo = pxtc.getApiInfo(stsCompRes.ast, opts.jres)
+                    if (!apisInfo || !apisInfo.byQName)
+                        throw Error("Failed to get apisInfo")
+                    opts.apisInfo = apisInfo
+
+                    opts.target.preferredEditor = pxt.PYTHON_PROJECT_NAME
+
+                    const { outfiles, diagnostics } = pxt.py.py2ts(opts)
+                    const success = diagnostics.length == 0
+                    resp = { outfiles, success, diagnostics, ast: stsCompRes.ast }
+                } else {
+                    resp = pxtc.compile(opts)
+                }
 
                 if (resp.outfiles && snippet.file) {
-                    const dir = snippet.file.replace(/\.ts$/, '');
+                    const dir = snippet.file
+                        .replace(/\.ts$/, '')
+                        .replace(/\.py$/, '');
                     nodeutil.mkdirP(dir);
                     nodeutil.mkdirP(path.join(dir, "built"));
                     Object.keys(resp.outfiles).forEach(outfile => {
@@ -5032,7 +5062,11 @@ function internalCheckDocsAsync(compileSnippets?: boolean, re?: string, fix?: bo
     if (fs.existsSync("targetconfig.json")) {
         const targeConfig = nodeutil.readJson("targetconfig.json") as pxt.TargetConfig;
         if (targeConfig.galleries)
-            Object.keys(targeConfig.galleries).forEach(gallery => todo.push(targeConfig.galleries[gallery]));
+            Object.keys(targeConfig.galleries)
+                .forEach(gallery => {
+                    const url = getGalleryUrl(targeConfig.galleries[gallery])
+                    todo.push(url)
+                });
     }
 
     // push files from targetconfig checkdocsdirs
@@ -5096,7 +5130,8 @@ function internalCheckDocsAsync(compileSnippets?: boolean, re?: string, fix?: bo
         if (targetConfig && targetConfig.galleries) {
             Object.keys(targetConfig.galleries).forEach(k => {
                 pxt.log(`gallery ${k}`);
-                let gallerymd = nodeutil.resolveMd(docsRoot, targetConfig.galleries[k]);
+                const galleryUrl = getGalleryUrl(targetConfig.galleries[k])
+                let gallerymd = nodeutil.resolveMd(docsRoot, galleryUrl);
                 let gallery = pxt.gallery.parseGalleryMardown(gallerymd);
                 pxt.debug(`found ${gallery.length} galleries`);
                 gallery.forEach(gal => gal.cards.forEach((card, cardIndex) => {
@@ -5211,9 +5246,10 @@ export function getCodeSnippets(fileName: string, md: string): CodeSnippet[] {
         "cards": "ts",
         "sim": "ts",
         "ghost": "ts",
-        "codecard": "json"
+        "codecard": "json",
+        "python": "py"
     }
-    const snippets = getSnippets(md);
+    let snippets = getSnippets(md);
     const codeSnippets = snippets.filter(snip => !snip.ignore && !!supported[snip.type]);
     const pkgs: pxt.Map<string> = {
         "blocksprj": "*"

@@ -5,10 +5,14 @@
 
 declare namespace pxt {
     // targetconfig.json
+    interface GalleryProps {
+        url: string,
+        experimentName?: string
+    }
     interface TargetConfig {
         packages?: PackagesConfig;
         // common galleries
-        galleries?: pxt.Map<string>;
+        galleries?: pxt.Map<string | GalleryProps>;
         // localized galleries
         localizedGalleries?: pxt.Map<pxt.Map<string>>;
         windowsStoreLink?: string;
@@ -178,6 +182,7 @@ declare namespace pxt {
         trustedUrls?: string[]; // URLs that are allowed in simulator modal messages
         invalidatedClass?: string; // CSS class to be applied to the sim iFrame when it needs to be updated (defaults to sepia filter)
         stoppedClass?: string; // CSS class to be applied to the sim iFrame when it isn't running (defaults to grayscale filter)
+        keymap?: boolean; // when non-empty and autoRun is disabled, this code is run upon simulator first start
     }
 
     interface TargetCompileService {
@@ -362,6 +367,7 @@ declare namespace pxt {
         leanShare?: boolean; // use leanscript.html instead of script.html for sharing pages
         nameProjectFirst?: boolean;
         pythonToolbox?: boolean; // Code toolbox for Python
+        githubEditor?: boolean; // allow editing github repositories from the editor
     }
 
     interface SocialOptions {
@@ -569,6 +575,8 @@ declare namespace ts.pxtc {
         advanced?: boolean;
         deprecated?: boolean;
         useEnumVal?: boolean; // for conversion from typescript to blocks with enumVal
+        emitAsConstant?: boolean; // used by the blocklycompiler to indicate that an enum should be compiled to a constant with the enumIdentity attribute set
+        enumIdentity?: string; // used by the decompiler to map constants to enum dropdown values
         callInDebugger?: boolean; // for getters, they will be invoked by the debugger.
         py2tsOverride?: string; // used to map functions in python that have an equivalent (but differently named) ts function
         pyHelper?: string; // used to specify functions on the _py namespace that provide implementations. Should be of the form py_class_methname
@@ -730,6 +738,7 @@ declare namespace ts.pxtc {
         position: number;
 
         symbols?: SymbolInfo[];
+        globalNames?: pxt.Map<SymbolInfo>;
         beginPos?: number;
         endPos?: number;
         auxResult?: any;

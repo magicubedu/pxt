@@ -468,7 +468,7 @@ export async function pullAsync(hd: Header, checkOnly = false) {
     let gitjson = JSON.parse(gitjsontext) as GitJson
     let parsed = pxt.github.parseRepoId(gitjson.repo)
     const sha = await pxt.github.getRefAsync(parsed.fullName, parsed.tag)
-    if  (!sha) {
+    if (!sha) {
         // 404: branch does not exist, repo is gone or no rights to access repo
         // try to get the list of heads to see if we can access the project
         const heads = await pxt.github.listRefsAsync(parsed.fullName, "heads");
@@ -540,8 +540,8 @@ export interface CommitOptions {
     blocksDiffScreenshotAsync?: () => Promise<string>;
 }
 
-const BLOCKS_PREVIEW_PATH = ".makecode/blocks.png";
-const BLOCKSDIFF_PREVIEW_PATH = ".makecode/blocksdiff.png";
+const BLOCKS_PREVIEW_PATH = ".github/makecode/blocks.png";
+const BLOCKSDIFF_PREVIEW_PATH = ".github/makecode/blocksdiff.png";
 export async function commitAsync(hd: Header, options: CommitOptions = {}) {
     await cloudsync.ensureGitHubTokenAsync();
 
@@ -583,7 +583,7 @@ export async function commitAsync(hd: Header, options: CommitOptions = {}) {
 
     let treeId = await pxt.github.createObjectAsync(parsed.fullName, "tree", treeUpdate)
     let commit: pxt.github.CreateCommitReq = {
-        message: options.message || lf("Update {0}", treeUpdate.tree.map(e => e.path).filter(f => !/\.makecode\//.test(f)).join(", ")),
+        message: options.message || lf("Update {0}", treeUpdate.tree.map(e => e.path).filter(f => !/\.github\/makecode\//.test(f)).join(", ")),
         parents: [gitjson.commit.sha],
         tree: treeId
     }
@@ -876,10 +876,24 @@ export async function recomputeHeaderFlagsAsync(h: Header, files: ScriptText) {
 
     if (gitjson.isFork == null) {
         const p = pxt.github.parseRepoId(gitjson.repo)
-        const r = await pxt.github.repoAsync(p.fullName, null)
-        gitjson.isFork = !!r.fork
-        files[GIT_JSON] = JSON.stringify(gitjson, null, 4)
-        await saveAsync(h, files)
+        const r = await pxt.github.repoAsync(p.fullName, null);
+        if (r) {
+            gitjson.isFork = !!r.fork
+            files[GIT_JSON] = JSON.stringify(gitjson, null, 4)
+            await saveAsync(h, files)
+        }
+    }
+
+    // automatically update project name with github name
+    const ghid = pxt.github.parseRepoId(h.githubId);
+    if (ghid.project) {
+        const ghname = ghid.project.replace(/^pxt-/, '').replace(/-+/g, ' ')
+        if (ghname != h.name) {
+            const cfg = pxt.Package.parseAndValidConfig(files[pxt.CONFIG_NAME]);
+            cfg.name = ghname;
+            h.name = ghname;
+            await saveAsync(h, files);
+        }
     }
 }
 
@@ -895,6 +909,14 @@ export function prepareConfigForGithub(content: string, createTag?: boolean): st
     delete cfg.additionalFilePath
     delete cfg.additionalFilePaths
     delete cfg.targetVersions;
+
+    // add list of supported targets
+    const supportedTargets = cfg.supportedTargets || [];
+    if (supportedTargets.indexOf(pxt.appTarget.id) < 0) {
+        supportedTargets.push(pxt.appTarget.id);
+        supportedTargets.sort(); // keep list stable
+        cfg.supportedTargets = supportedTargets;
+    }
 
     // patch dependencies
     const localDependencies = Object.keys(cfg.dependencies)
@@ -931,7 +953,10 @@ export async function initializeGithubRepoAsync(hd: Header, repoid: string, forc
 
     const templateFiles = pxt.template.packageFiles(name);
     pxt.template.packageFilesFixup(templateFiles, {
-        repo: parsed.fullName
+        repo: parsed.fullName,
+        repoowner: parsed.owner,
+        reponame: parsed.project,
+        repotag: parsed.tag
     });
 
     if (forceTemplateFiles) {
@@ -987,6 +1012,13 @@ export async function initializeGithubRepoAsync(hd: Header, repoid: string, forc
         .forEach(f => delete currFiles[f]);
 
     await saveAsync(hd, currFiles)
+
+    // try enable github pages
+    try {
+        await pxt.github.enablePagesAsync(parsed.fullName);
+    } catch (e) {
+        pxt.reportException(e);
+    }
 
     return hd
 }

@@ -40,6 +40,7 @@ import * as monacoToolbox from "./monacoSnippets";
 import * as greenscreen from "./greenscreen";
 import * as socketbridge from "./socketbridge";
 import * as webusb from "./webusb";
+import * as keymap from "./keymap";
 
 import * as monaco from "./monaco"
 import * as pxtjson from "./pxtjson"
@@ -158,6 +159,8 @@ export class ProjectView
         this.toggleSimulatorFullscreen = this.toggleSimulatorFullscreen.bind(this);
         this.cloudSignInComplete = this.cloudSignInComplete.bind(this);
         this.toggleSimulatorCollapse = this.toggleSimulatorCollapse.bind(this);
+        this.showKeymap = this.showKeymap.bind(this);
+        this.toggleKeymap = this.toggleKeymap.bind(this);
         this.initScreenshots();
 
         // add user hint IDs and callback to hint manager
@@ -1849,6 +1852,7 @@ export class ProjectView
         if (!hasHome) return;
 
         this.stopSimulator(true); // don't keep simulator around
+        this.showKeymap(false); // close keymap if open
         if (this.editor) this.editor.unloadFileAsync();
         // clear the hash
         pxt.BrowserUtils.changeHash("", true);
@@ -2092,11 +2096,15 @@ export class ProjectView
                 if (src === undefined && open) { // failed to convert
                     return core.confirmAsync({
                         header: lf("Oops, there is a problem converting your code."),
-                        body: lf("We are unable to convert your code back to JavaScript."),
+                        body: lf("We are unable to convert your code to JavaScript."),
                         agreeLbl: lf("Done"),
                         agreeClass: "cancel",
                         agreeIcon: "cancel",
-                    }).then(b => { })
+                    }).then(b => {
+                        if (this.isPythonActive()) {
+                            pxt.Util.setEditorLanguagePref("py"); // stay in python, else go to blocks
+                        }
+                    })
                 }
                 if (src === undefined
                     || this.editorFile.name == this.editorFile.getVirtualFileName(pxt.JAVASCRIPT_PROJECT_NAME))
@@ -3045,7 +3053,9 @@ export class ProjectView
     }
 
     showRenameProjectDialogAsync(): Promise<boolean> {
-        if (!this.state.header) return Promise.resolve(false);
+        // don't show rename project prompt on github projects
+        if (!this.state.header || this.state.header.githubId)
+            return Promise.resolve(false);
 
         const opts: core.PromptOptions = {
             header: lf("Rename your project"),
@@ -3353,6 +3363,22 @@ export class ProjectView
     }
 
     ///////////////////////////////////////////////////////////
+    ////////////             Key map              /////////////
+    ///////////////////////////////////////////////////////////
+
+    showKeymap(show: boolean) {
+        this.setState({ keymap: show });
+    }
+
+    toggleKeymap() {
+        if (this.state.keymap) {
+            this.showKeymap(false);
+        } else {
+            this.showKeymap(true);
+        }
+    }
+
+    ///////////////////////////////////////////////////////////
     ////////////         Script Manager           /////////////
     ///////////////////////////////////////////////////////////
 
@@ -3488,6 +3514,7 @@ export class ProjectView
             isHeadless ? "headless" : "",
             flyoutOnly ? "flyoutOnly" : "",
             hideTutorialIteration ? "hideIteration" : "",
+            this.editor != this.blocksEditor ? "editorlang-text" : "",
             'full-abs'
         ];
         const rootClasses = sui.cx(rootClassList);
@@ -3525,6 +3552,7 @@ export class ProjectView
                         <div id="boardview" className={`ui vertical editorFloat`} role="region" aria-label={lf("Simulator")} tabIndex={inHome ? -1 : 0}>
                         </div>
                         <simtoolbar.SimulatorToolbar parent={this} />
+                        {this.state.keymap && simOpts.keymap && <keymap.Keymap parent={this} />}
                         <div className="ui item portrait hide hidefullscreen">
                             {pxt.options.debug ? <sui.Button key='hwdebugbtn' className='teal' icon="xicon chip" text={"Dev Debug"} onClick={this.hwDebug} /> : ''}
                         </div>
