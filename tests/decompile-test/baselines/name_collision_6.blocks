@@ -2,7 +2,7 @@
 <block type="pxt-on-start">
 <statement name="HANDLER">
 <block type="typescript_statement">
-<mutation declaredvars="x" numlines="1" error="Variable type is not supported by Blockly" line0="let x&#58; testNamespace.TestClass &#61; null&#59;" />
+<mutation declaredvars="x" numlines="1" error="Unsupported syntax kind for output expression block&#58; NullKeyword" line0="let x&#58; testNamespace.TestClass &#61; null&#59;" />
 <next>
 <block type="variables_set">
 <field name="VAR">x</field>
@@ -46,7 +46,7 @@
 </value>
 <next>
 <block type="typescript_statement">
-<mutation declaredvars="z" numlines="1" error="Variable type is not supported by Blockly" line0="let z&#58; testNamespace.TestClass &#61; null&#59;" />
+<mutation declaredvars="y" numlines="1" error="Unsupported syntax kind for output expression block&#58; NullKeyword" line0="let y&#58; testNamespace.TestClass &#61; null&#59;" />
 <next>
 <block type="variables_set">
 <field name="VAR">y2</field>
