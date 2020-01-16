@@ -104,9 +104,6 @@ namespace pxt.blocks {
         // remove spaces before after pipe
         nb = nb.replace(/\s*\|\s*/g, '|');
 
-        // lower case first character
-        nb = nb.replace(/^[A-Z]/, (m) => m.toLowerCase());
-
         return nb;
     }
 
