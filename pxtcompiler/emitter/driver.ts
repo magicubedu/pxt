@@ -303,7 +303,7 @@ namespace ts.pxtc {
             snippetMode: opts.snippetMode || false,
             alwaysEmitOnStart: opts.alwaysDecompileOnStart,
             includeGreyBlockMessages,
-            generatedVarDeclarations: generatedVarDeclarations
+            generatedVarDeclarations: generatedVarDeclarations,
             generateSourceMap: !!opts.ast,
             allowedArgumentTypes: opts.allowedArgumentTypes || ["number", "boolean", "string"]
         };
