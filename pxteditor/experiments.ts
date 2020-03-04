@@ -85,12 +85,6 @@ namespace pxt.editor.experiments {
                 feedbackUrl: "https://github.com/microsoft/pxt/issues/5390"
             },
             {
-                id: "pythonToolbox",
-                name: lf("Toolbox for Static Python"),
-                description: lf("Use the code toolbox in Static Python"),
-                feedbackUrl: "https://github.com/microsoft/pxt/issues/6291"
-            },
-            {
                 id: "simGif",
                 name: lf("Simulator Gifs"),
                 description: lf("Download gifs of the simulator"),
@@ -129,12 +123,6 @@ namespace pxt.editor.experiments {
                 description: lf("Enable support for hardware marked 'experimental' in the hardware seletion dialog")
             },
             {
-                id: "recipes",
-                name: lf("Tutorials in Context"),
-                description: lf("Micro-tutorials running within your program."),
-                feedbackUrl: "https://github.com/microsoft/pxt/issues/5646"
-            },
-            {
                 id: "checkForHwVariantWebUSB",
                 name: lf("Detect Hardware with WebUSB"),
                 description: lf("When compiling, use WebUSB to detect hardware configuration.")
@@ -149,6 +137,21 @@ namespace pxt.editor.experiments {
                 id: "githubCompiledJs",
                 name: lf("GitHub Pages JavaScript"),
                 description: lf("Commit compiled javascript when creating a release")
+            },
+            {
+                id: "blocksCollapsing",
+                name: lf("Collapse blocks"),
+                description: lf("Collapse and expand functions or event blocks")
+            },
+            {
+                id: "tutorialBlocksDiff",
+                name: lf("Tutorial Block Diffs"),
+                description: lf("Automatially render blocks diff in tutorials")
+            },
+            {
+                id: "openProjectNewTab",
+                name: lf("Open in New Tab"),
+                description: lf("Open connected editors in different browser tabs.")
             }
         ].filter(experiment => ids.indexOf(experiment.id) > -1);
     }

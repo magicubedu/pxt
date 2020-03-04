@@ -58,6 +58,7 @@ namespace pxt {
             for (const apiName of Object.keys(byQName)) {
                 const sym = byQName[apiName]
                 const lastDot = apiName.lastIndexOf(".")
+                const pyQName = sym.pyQName;
                 // re-create the object - this will hint the JIT that these are objects of the same type
                 // and the same hidden class should be used
                 const newsym = byQName[apiName] = {
@@ -65,6 +66,8 @@ namespace pxt {
                     qName: apiName,
                     namespace: apiName.slice(0, lastDot < 0 ? 0 : lastDot),
                     name: apiName.slice(lastDot + 1),
+                    pyQName: pyQName,
+                    pyName: pyQName ? pyQName.slice(pyQName.lastIndexOf(".") + 1) : undefined,
                     fileName: "",
                     attributes: sym.attributes || ({} as any),
                     retType: sym.retType || "void",
@@ -103,8 +106,10 @@ namespace pxt {
     }
 
     export function setCompileSwitch(name: string, value: boolean) {
-        (savedSwitches as any)[name] = value
-        if (appTarget) {
+        if (/^csv-/.test(name)) {
+            pxt.setAppTargetVariant(name.replace(/^csv-*/, ""))
+        } else if (appTarget) {
+            (savedSwitches as any)[name] = value
             U.jsonCopyFrom(appTarget.compile.switches, savedSwitches)
             U.jsonCopyFrom(savedAppTarget.compile.switches, savedSwitches)
         }
@@ -209,14 +214,31 @@ namespace pxt {
         })
 
         // patch any pre-configured query url appTheme overrides
-        if (appTarget.queryVariants && typeof window !== 'undefined') {
+        if (typeof window !== 'undefined') {
+            // Map<AppTarget>
+            const queryVariants: Map<any> = {
+                "lockededitor=1": {
+                    appTheme: {
+                        lockedEditor: true
+                    }
+                },
+                "hidemenu=1": {
+                    appTheme: {
+                        hideMenuBar: true
+                    }
+                }
+            }
+            // import target specific flags
+            if (appTarget.queryVariants)
+                Util.jsonCopyFrom(queryVariants, appTarget.queryVariants);
+
             const href = window.location.href;
-            Object.keys(appTarget.queryVariants).forEach(queryRegex => {
+            Object.keys(queryVariants).forEach(queryRegex => {
                 const regex = new RegExp(queryRegex, "i");
                 const match = regex.exec(href);
                 if (match) {
                     // Apply any appTheme overrides
-                    let v = appTarget.queryVariants[queryRegex];
+                    let v = queryVariants[queryRegex];
                     if (v) {
                         U.jsonMergeFrom(appTarget, v);
                     }
@@ -463,6 +485,7 @@ namespace pxt {
     export const BLOCKS_PROJECT_NAME = "blocksprj";
     export const JAVASCRIPT_PROJECT_NAME = "tsprj";
     export const PYTHON_PROJECT_NAME = "pyprj";
+    export const DEFAULT_GROUP_NAME = "other"; // used in flyout, for snippet groups
 
     export function outputName(trg: pxtc.CompileTarget = null) {
         if (!trg) trg = appTarget.compile

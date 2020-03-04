@@ -732,7 +732,7 @@ namespace pxt.py {
         return null
     }
 
-    function lookupSymbol(n: string) {
+    function lookupSymbol(n: string | undefined) {
         if (!n)
             return null
 
@@ -832,7 +832,7 @@ namespace pxt.py {
     function compileType(e: Expr): Type {
         if (!e)
             return mkType()
-        let tpName = getName(e)
+        let tpName = tryGetName(e)
         if (tpName) {
             let sym = lookupApi(tpName + "@type") || lookupApi(tpName)
             if (sym) {
@@ -1058,7 +1058,7 @@ namespace pxt.py {
             let prefix = ""
             let funname = n.name
             const remainingDecorators = n.decorator_list.filter(d => {
-                if (getName(d) == "property") {
+                if (tryGetName(d) == "property") {
                     prefix = "get"
                     return false
                 }
@@ -1163,7 +1163,7 @@ namespace pxt.py {
                     quote(n.name)
                 ]
             if (!n.isNamespace && n.bases.length > 0) {
-                if (getName(n.bases[0]) == "Enum") {
+                if (tryGetName(n.bases[0]) == "Enum") {
                     n.isEnum = true
                 } else {
                     nodes.push(B.mkText(" extends "))
@@ -1228,6 +1228,7 @@ namespace pxt.py {
         },
         For: (n: py.For) => {
             U.assert(n.orelse.length == 0)
+            n.target.forTargetEndPos = n.endPos
             if (isCallTo(n.iter, "range")) {
                 let r = n.iter as py.Call
                 let def = expr(n.target)
@@ -1247,14 +1248,27 @@ namespace pxt.py {
                     B.mkText(")"),
                     stmts(n.body))
             }
-            unifyTypeOf(n.iter, mkArrayType(typeOf(n.target)))
+
+            if (currIteration > 1) {
+                const typeOfTarget = typeOf(n.target);
+                /**
+                 * The type the variable to iterate over must be `string | Iterable<typeof Target>`,
+                 * but we can't model that with the current state of the python type checker.
+                 * If we can identify the type of the value we're iterating over to be a string elsewhere,
+                 * try and allow this by unifying with just the target type;
+                 * otherwise, it is assumed to be an array.
+                 */
+                unifyTypeOf(n.iter, typeOf(n.iter) == tpString ? typeOfTarget : mkArrayType(typeOfTarget));
+            }
+
             return B.mkStmt(
                 B.mkText("for ("),
                 expr(n.target),
                 B.mkText(" of "),
                 expr(n.iter),
                 B.mkText(")"),
-                stmts(n.body))
+                stmts(n.body)
+            );
         },
         While: (n: py.While) => {
             U.assert(n.orelse.length == 0)
@@ -1292,7 +1306,7 @@ namespace pxt.py {
                 let res: B.JsNode[] = []
                 let devRef = expr(it.context_expr)
                 if (it.optional_vars) {
-                    let id = getName(it.optional_vars)
+                    let id = tryGetName(it.optional_vars)
                     if (id) {
                         let v = defvar(id, { isLocal: true })
                         id = quoteStr(id)
@@ -1314,7 +1328,6 @@ namespace pxt.py {
                 let varName = "with" + idx
                 if (it.optional_vars) {
                     let id = getName(it.optional_vars)
-                    U.assert(id != null)
                     defvar(id, { isLocal: true })
                     varName = quoteStr(id)
                 }
@@ -1490,7 +1503,7 @@ namespace pxt.py {
 
         let pref = ""
         let isConstCall = value ? isCallTo(value, "const") : false
-        let nm = getName(target) || ""
+        let nm = tryGetName(target) || ""
         if (!isTopLevel() && !ctx.currClass && !ctx.currFun && nm[0] != "_")
             pref = "export "
         if (nm && ctx.currClass && !ctx.currFun) {
@@ -1640,7 +1653,7 @@ namespace pxt.py {
         //return id.replace(/([a-z0-9])_([a-zA-Z0-9])/g, (f: string, x: string, y: string) => x + y.toUpperCase())
     }
 
-    function getName(e: py.Expr): string {
+    function tryGetName(e: py.Expr): string | undefined {
         if (e.kind == "Name") {
             let s = (e as py.Name).id
             let v = lookupVar(s)
@@ -1648,12 +1661,17 @@ namespace pxt.py {
             else return s
         }
         if (e.kind == "Attribute") {
-            let pref = getName((e as py.Attribute).value)
+            let pref = tryGetName((e as py.Attribute).value)
             if (pref)
                 return pref + "." + (e as py.Attribute).attr
         }
-        error(null, 9542, lf("Cannot get name of unknown expression kind '{0}'", e.kind));
         return undefined!
+    }
+    function getName(e: py.Expr): string {
+        let name = tryGetName(e)
+        if (!name)
+            error(null, 9542, lf("Cannot get name of unknown expression kind '{0}'", e.kind));
+        return name!
     }
 
     function quote(id: py.identifier) {
@@ -1666,7 +1684,7 @@ namespace pxt.py {
         if (n.kind != "Call")
             return false
         let c = n as py.Call
-        return getName(c.func) === fn
+        return tryGetName(c.func) === fn
     }
 
     function binop(left: B.JsNode, pyName: string, right: B.JsNode) {
@@ -1786,7 +1804,18 @@ namespace pxt.py {
         BinOp: (n: py.BinOp) => {
             let r = handleFmt(n)
             if (r) return r
-            r = binop(expr(n.left), n.op, expr(n.right))
+
+            const left = expr(n.left);
+            const right = expr(n.right);
+
+            if (isArrayType(n.left) && isArrayType(n.right)) {
+                if (n.op === "Add") {
+                    return B.H.extensionCall("concat", [left, right], false);
+                }
+            }
+
+            r = binop(left, n.op, right)
+
             if (numOps[n.op]) {
                 unifyTypeOf(n.left, tpNumber)
                 unifyTypeOf(n.right, tpNumber)
@@ -1804,7 +1833,18 @@ namespace pxt.py {
         Lambda: (n: py.Lambda) => exprTODO(n),
         IfExp: (n: py.IfExp) =>
             B.mkInfix(B.mkInfix(expr(n.test), "?", expr(n.body)), ":", expr(n.orelse)),
-        Dict: (n: py.Dict) => exprTODO(n),
+        Dict: (n: py.Dict) => {
+            ctx.blockDepth++;
+            const elts = n.keys.map((k, i) => {
+                const v = n.values[i]
+                if (k === undefined)
+                    return exprTODO(n)
+                return B.mkStmt(B.mkInfix(expr(k), ":", expr(v)), B.mkText(","))
+            })
+            const res = B.mkBlock(elts);
+            ctx.blockDepth--;
+            return res
+        },
         Set: (n: py.Set) => exprTODO(n),
         ListComp: (n: py.ListComp) => exprTODO(n),
         SetComp: (n: py.SetComp) => exprTODO(n),
@@ -1844,7 +1884,7 @@ namespace pxt.py {
             // TODO(dz): move body out; needs seperate PR that doesn't touch content
             n.func.inCalledPosition = true
 
-            let nm = getName(n.func)
+            let nm = tryGetName(n.func)
             let namedSymbol = lookupSymbol(nm)
             let isClass = namedSymbol && namedSymbol.kind == SK.Class
 
@@ -1881,7 +1921,7 @@ namespace pxt.py {
             }
 
             if (!fun) {
-                let over = U.lookup(py2TsFunMap, nm)
+                let over = U.lookup(py2TsFunMap, nm!)
                 if (over)
                     methName = ""
 
@@ -2168,6 +2208,13 @@ namespace pxt.py {
             if (v.isImport)
                 return v
             addCaller(n, v)
+            if (n.forTargetEndPos && v.forVariableEndPos !== n.forTargetEndPos) {
+                if (v.forVariableEndPos)
+                    // defined in more than one 'for'; make sure it's hoisted
+                    v.lastRefPos = v.forVariableEndPos + 1
+                else
+                    v.forVariableEndPos = n.forTargetEndPos
+            }
         } else if (currIteration > 0) {
             error(n, 9516, U.lf("name '{0}' is not defined", n.id))
         }
@@ -2194,6 +2241,9 @@ namespace pxt.py {
             if (s.firstRefPos === undefined || s.firstRefPos > location.startPos) {
                 s.firstRefPos = location.startPos;
             }
+            if (s.lastRefPos === undefined || s.lastRefPos < location.startPos) {
+                s.lastRefPos = location.startPos;
+            }
         }
     }
 
@@ -2208,6 +2258,10 @@ namespace pxt.py {
         ])
     }
 
+    function sourceMapId(e: py.AST): string {
+        return `${e.startPos}:${e.endPos}`
+    }
+
     function expr(e: py.Expr): B.JsNode {
         lastAST = e
         let f = exprMap[e.kind]
@@ -2215,7 +2269,9 @@ namespace pxt.py {
             U.oops(e.kind + " - unknown expr")
         }
         typeOf(e)
-        return f(e)
+        const r = f(e)
+        r.id = sourceMapId(e)
+        return r
     }
 
     function stmt(e: py.Stmt): B.JsNode {
@@ -2231,6 +2287,7 @@ namespace pxt.py {
         if (cmts.length) {
             r = B.mkGroup(cmts.map(c => B.mkStmt(B.H.mkComment(c))).concat(r))
         }
+        r.id = sourceMapId(e)
         return r
     }
 
@@ -2282,8 +2339,8 @@ namespace pxt.py {
             sym.kind === SK.Variable
             && !sym.isParam
             && sym.modifier === undefined
-            && (
-                sym.firstRefPos! < sym.firstAssignPos!
+            && (sym.lastRefPos! > sym.forVariableEndPos!
+                || sym.firstRefPos! < sym.firstAssignPos!
                 || sym.firstAssignDepth! > scope.blockDepth!);
         return !!result
     }
@@ -2330,7 +2387,9 @@ namespace pxt.py {
         diagnostics: pxtc.KsDiagnostic[],
         success: boolean,
         outfiles: { [key: string]: string },
-        syntaxInfo?: pxtc.SyntaxInfo
+        syntaxInfo?: pxtc.SyntaxInfo,
+        globalNames?: pxt.Map<SymbolInfo>,
+        sourceMap: pxtc.SourceInterval[]
     }
     export function py2ts(opts: pxtc.CompileOptions): Py2TsRes {
         let modules: py.Module[] = []
@@ -2342,7 +2401,7 @@ namespace pxt.py {
         // find .ts files that are copies of / shadowed by the .py files
         let pyFiles = opts.sourceFiles!.filter(fn => U.endsWith(fn, ".py"))
         if (pyFiles.length == 0)
-            return { outfiles, diagnostics, success: diagnostics.length === 0 }
+            return { outfiles, diagnostics, success: diagnostics.length === 0, sourceMap: [] }
         let removeEnd = (file: string, ext: string) => file.substr(0, file.length - ext.length)
         let pyFilesSet = U.toDictionary(pyFiles, p => removeEnd(p, ".py"))
         let tsFiles = opts.sourceFiles!
@@ -2407,7 +2466,11 @@ namespace pxt.py {
 
         resetPass(1000)
         infoNode = undefined
-        syntaxInfo = opts.syntaxInfo
+        syntaxInfo = opts.syntaxInfo || {
+            position: 0,
+            type: "symbol"
+        }
+        let sourceMap: pxtc.SourceInterval[] = []
         for (let m of modules) {
             try {
                 let nodes = toTS(m)
@@ -2417,6 +2480,26 @@ namespace pxt.py {
                 opts.generatedFiles.push(m.tsFilename)
                 opts.fileSystem[m.tsFilename] = res.output
                 outfiles[m.tsFilename] = res.output
+                let rawSrcMap = res.sourceMap
+                function unpackInterval(i: B.BlockSourceInterval): pxtc.SourceInterval | undefined {
+                    let splits = i.id.split(":")
+                    if (splits.length != 2)
+                        return undefined
+                    let py = splits.map(i => parseInt(i))
+                    return {
+                        py: {
+                            startPos: py[0],
+                            endPos: py[1]
+                        },
+                        ts: {
+                            startPos: i.startPos,
+                            endPos: i.endPos
+                        }
+                    }
+                }
+                sourceMap = rawSrcMap
+                    .map(unpackInterval)
+                    .filter(i => !!i) as pxtc.SourceInterval[]
             } catch (e) {
                 console.log("Conv error", e);
             }
@@ -2440,15 +2523,25 @@ namespace pxt.py {
             }
         }
 
-        if (syntaxInfo) syntaxInfo.symbols = []
+        // always return global symbols because we might need to check for
+        // name collisions downstream
+        let globalNames: pxt.Map<SymbolInfo> = {}
+        const apis = U.values(externalApis).concat(U.values(internalApis))
+        let existing: SymbolInfo[] = []
+        const addSym = (v: SymbolInfo) => {
+            if (isGlobalSymbol(v) && existing.indexOf(v) < 0) {
+                let s = cleanSymbol(v)
+                globalNames[s.qName || s.name] = s
+            }
+        }
+        for (let s: ScopeDef | undefined = infoScope; !!s; s = s.parent) {
+            if (s && s.vars)
+                U.values(s.vars).forEach(addSym)
+        }
+        apis.forEach(addSym)
 
-        if (infoNode)
-            error(null, 9569, lf("type annotation error; this should be unreachable"));
         if (syntaxInfo && infoNode) {
-            // TODO: unreachable since infoNode is always undefined here
             infoNode = infoNode as AST
-
-            const apis = U.values(externalApis).concat(U.values(internalApis))
 
             syntaxInfo.beginPos = infoNode.startPos
             syntaxInfo.endPos = infoNode.endPos
@@ -2456,22 +2549,7 @@ namespace pxt.py {
             if (!syntaxInfo.symbols)
                 syntaxInfo.symbols = []
 
-            // always return global symbols because we might need to check for
-            // name collisions downstream
-            syntaxInfo.globalNames = syntaxInfo.globalNames || {}
-            let existing: SymbolInfo[] = []
-            const addSym = (v: SymbolInfo) => {
-                if (isGlobalSymbol(v) && existing.indexOf(v) < 0) {
-                    let s = cleanSymbol(v)
-                    syntaxInfo!.globalNames![s.qName || s.name] = s
-                }
-            }
             existing = syntaxInfo.symbols.slice()
-            for (let s: ScopeDef | undefined = infoScope; !!s; s = s.parent) {
-                if (s && s.vars)
-                    U.values(s.vars).forEach(addSym)
-            }
-            apis.forEach(addSym)
 
             if (syntaxInfo.type == "memberCompletion" && infoNode.kind == "Attribute") {
                 const attr = infoNode as Attribute
@@ -2499,7 +2577,7 @@ namespace pxt.py {
                 }
 
             } else if (syntaxInfo.type == "identifierCompletion") {
-                syntaxInfo.symbols = pxt.U.values(syntaxInfo.globalNames)
+                syntaxInfo.symbols = pxt.U.values(globalNames)
             } else {
                 let sym = (infoNode as Expr).symbolInfo
                 if (sym)
@@ -2514,7 +2592,9 @@ namespace pxt.py {
             outfiles: outfiles,
             success: outDiag.length === 0,
             diagnostics: outDiag,
-            syntaxInfo
+            syntaxInfo,
+            globalNames,
+            sourceMap: sourceMap
         }
 
         function patchedDiags() {
@@ -2578,6 +2658,12 @@ namespace pxt.py {
         return {
             parts
         };
+    }
+
+    function isArrayType(expr: py.Expr) {
+        const t = find(typeOf(expr));
+
+        return t && t.primType === "@array";
     }
 
     function buildOverride(override: TypeScriptOverride, args: B.JsNode[], recv?: B.JsNode) {

@@ -141,6 +141,7 @@ namespace pxt.blocks {
         }
 
         const isVariable = shadowId == "variables_get";
+        const isText = shadowId == "text";
 
         const value = document.createElement("value");
         value.setAttribute("name", p.definitionName);
@@ -212,6 +213,10 @@ namespace pxt.blocks {
 
             if (isVariable) {
                 field.setAttribute("name", "VAR");
+                shadow.appendChild(field);
+            }
+            else if (isText) {
+                field.setAttribute("name", "TEXT");
                 shadow.appendChild(field);
             }
             else if (shadowId) {
@@ -1768,7 +1773,7 @@ namespace pxt.blocks {
                         {
                             "type": "input_value",
                             "name": "LIST",
-                            "check": "Array"
+                            "check": ["Array", "String"]
                         }
                     ],
                     "previousStatement": null,

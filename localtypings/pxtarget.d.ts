@@ -5,9 +5,12 @@
 
 declare namespace pxt {
     // targetconfig.json
+    type GalleryShuffle = "daily";
     interface GalleryProps {
-        url: string,
-        experimentName?: string
+        url: string;
+        experimentName?: string;
+        locales?: string[];
+        shuffle?: GalleryShuffle;
     }
     interface TargetConfig {
         packages?: PackagesConfig;
@@ -51,12 +54,14 @@ declare namespace pxt {
         appTheme: AppTheme;
         compileService?: TargetCompileService;
         ignoreDocsErrors?: boolean;
+        uploadApiStringsBranchRx?: string; // regular expression to match branches that should upload api strings
         uploadDocs?: boolean; // enable uploading to crowdin on master or v* builds
         variants?: Map<AppTarget>; // patches on top of the current AppTarget for different chip variants
         multiVariants?: string[];
         queryVariants?: Map<AppTarget>; // patches on top of the current AppTarget using query url regex
         unsupportedBrowsers?: BrowserOptions[]; // list of unsupported browsers for a specific target (eg IE11 in arcade). check browserutils.js browser() function for strings
         checkdocsdirs?: string[]; // list of folders for checkdocs, irrespective of SUMMARY.md
+        blockIdMap?: Map<string[]>; // list of target-specific blocks that are "synonyms" (eg. "agentturnright" and "minecraftAgentTurn")
     }
 
     interface BrowserOptions {
@@ -238,7 +243,7 @@ declare namespace pxt {
         homeUrl?: string;
         shareUrl?: string;
         embedUrl?: string;
-        betaUrl?: string;
+        // betaUrl?: string; deprecated, beta button automatically shows up in experiments dialog
         docMenu?: DocMenuEntry[];
         TOC?: TOCMenuEntry[];
         hideSideDocs?: boolean;
@@ -265,6 +270,7 @@ declare namespace pxt {
         coloredToolbox?: boolean; // if true: color the blockly toolbox categories
         invertedToolbox?: boolean; // if true: use the blockly inverted toolbox
         invertedMonaco?: boolean; // if true: use the vs-dark monaco theme
+        invertedGitHub?: boolean; // inverted github view
         lightToc?: boolean; // if true: do NOT use inverted style in docs toc
         blocklyOptions?: Blockly.WorkspaceOptions; // Blockly options, see Configuration: https://developers.google.com/blockly/guides/get-started/web
         hideFlyoutHeadings?: boolean; // Hide the flyout headings at the top of the flyout when on a mobile device.
@@ -361,14 +367,19 @@ declare namespace pxt {
         debugExtensionCode?: boolean; // debug extension and libs code in the Monaco debugger
         snippetBuilder?: boolean; // Snippet builder experimental feature
         experimentalHw?: boolean; // enable experimental hardware
-        recipes?: boolean; // inlined tutorials
+        // recipes?: boolean; // inlined tutorials - deprecated
         checkForHwVariantWebUSB?: boolean; // check for hardware variant using webusb before compiling
         shareFinishedTutorials?: boolean; // always pop a share dialog once the tutorial is finished
         leanShare?: boolean; // use leanscript.html instead of script.html for sharing pages
-        nameProjectFirst?: boolean;
-        pythonToolbox?: boolean; // Code toolbox for Python
+        nameProjectFirst?: boolean; // prompt user to name project when creating new one
+        chooseLanguageRestrictionOnNewProject?: boolean; // include 'options' menu when creating a new project
         githubEditor?: boolean; // allow editing github repositories from the editor
-        githubCompiledJs?: boolean; // commit binary.js in commit when creating a github release
+        githubCompiledJs?: boolean; // commit binary.js in commit when creating a github release,
+        blocksCollapsing?: boolean; // collapse/uncollapse functions/event in blocks
+        hideHomeDetailsVideo?: boolean; // hide video/large image from details card
+        tutorialBlocksDiff?: boolean; // automatically display diffs in tutorials
+        openProjectNewTab?: boolean; // allow opening project in a new tab
+        tutorialExplicitHints?: boolean; // allow use explicit hints
     }
 
     interface SocialOptions {
@@ -421,6 +432,13 @@ declare namespace pxt.editor {
         JSON = "json",
         XML = "xml",
         Asm = "asm"
+    }
+
+    const enum LanguageRestriction {
+        Standard = "",
+        PythonOnly = "python-only",
+        JavaScriptOnly = "javascript-only",
+        NoBlocks = "no-blocks"
     }
 }
 
@@ -740,9 +758,7 @@ declare namespace ts.pxtc {
     interface SyntaxInfo {
         type: InfoType;
         position: number;
-
         symbols?: SymbolInfo[];
-        globalNames?: pxt.Map<SymbolInfo>;
         beginPos?: number;
         endPos?: number;
         auxResult?: any;
@@ -772,8 +788,12 @@ declare namespace ts.pxtc {
 
         syntaxInfo?: SyntaxInfo;
 
-        alwaysDecompileOnStart?: boolean; // decompiler only
-        allowedArgumentTypes?: string[]; // decompiler-only; the types allowed for user-defined function arguments in blocks (unlisted types will cause grey blocks)
+        // decompiler only
+        alwaysDecompileOnStart?: boolean;
+        // decompiler-only; the types allowed for user-defined function arguments in blocks (unlisted types will cause grey blocks)
+        allowedArgumentTypes?: string[];
+        // decompiler only
+        snippetMode?: boolean;
 
         embedMeta?: string;
         embedBlob?: string; // base64
@@ -834,6 +854,7 @@ declare namespace pxt.tutorial {
         steps: TutorialStepInfo[];
         activities: TutorialActivityInfo[];
         code: string; // all code
+        language?: string; // language of code snippet (ts or python)
         templateCode?: string;
         metadata?: TutorialMetadata;
     }
@@ -843,6 +864,7 @@ declare namespace pxt.tutorial {
         explicitHints?: boolean; // tutorial expects explicit hints in `#### ~ tutorialhint` format
         flyoutOnly?: boolean; // no categories, display all blocks in flyout
         hideIteration?: boolean; // hide step control in tutorial
+        noDiffs?: boolean; // don't automatically generated diffs
         codeStart?: string; // command to run when code starts (MINECRAFT HOC ONLY)
         codeStop?: string; // command to run when code stops (MINECRAFT HOC ONLY)
     }
@@ -852,11 +874,11 @@ declare namespace pxt.tutorial {
         // no coding
         unplugged?: boolean;
         tutorialCompleted?: boolean;
-        hasHint?: boolean;
         contentMd?: string;
         headerContentMd?: string;
         hintContentMd?: string;
         activity?: number;
+        resetDiff?: boolean; // reset diffify algo
     }
 
     interface TutorialActivityInfo {
@@ -880,6 +902,7 @@ declare namespace pxt.tutorial {
         templateCode?: string;
         autoexpandStep?: boolean; // autoexpand tutorial card if instruction text overflows
         metadata?: TutorialMetadata; // metadata about the tutorial parsed from the markdown
+        language?: string; // native language of snippets ("python" for python, otherwise defaults to typescript)
     }
     interface TutorialCompletionInfo {
         // id of the tutorial

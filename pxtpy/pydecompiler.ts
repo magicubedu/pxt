@@ -67,6 +67,7 @@ namespace pxt.py {
         let lhost = new ts.pxtc.LSHost(prog)
         // let ls = ts.createLanguageService(lhost) // TODO
         let file = prog.getSourceFile(filename)
+        let commentMap = pxtc.decompiler.buildCommentMap(file);
         let reservedWords = pxt.U.toSet(getReservedNmes(), s => s)
         let [renameMap, globalNames] = ts.pxtc.decompiler.buildRenameMap(prog, file, reservedWords)
         let allSymbols = pxtc.getApiInfo(prog)
@@ -120,11 +121,20 @@ namespace pxt.py {
                 'type', 'vars', 'zip']
             return reservedNames;
         }
+        function tryGetSymbol(exp: ts.Node) {
+            if (!exp.getSourceFile())
+                return null
+            let tsExp = exp.getText()
+            return symbols[tsExp] || null;
+        }
         function tryGetPyName(exp: ts.BindingPattern | ts.PropertyName | ts.EntityName | ts.PropertyAccessExpression): string | null {
             if (!exp.getSourceFile())
                 return null
             let tsExp = exp.getText()
             let sym = symbols[tsExp]
+            if (sym && sym.attributes.alias) {
+                return sym.attributes.alias
+            }
             if (sym && sym.pyQName) {
                 return sym.pyQName
             }
@@ -215,9 +225,13 @@ namespace pxt.py {
             let outLns = file.getChildren()
                 .map(emitNode)
                 .reduce((p, c) => p.concat(c), [])
-                .join("\n")
 
-            return outLns
+            // emit any comments that could not be associated with a
+            // statement at the end of the file
+            commentMap.filter(c => !c.owner)
+                .forEach(comment => outLns.push(...emitComment(comment)))
+
+            return outLns.join("\n")
         }
         function emitNode(s: ts.Node): string[] {
             switch (s.kind) {
@@ -233,31 +247,29 @@ namespace pxt.py {
                     return emitStmtWithNewlines(s as ts.Statement)
             }
         }
+
+        function emitComment(comment: pxtc.decompiler.Comment) {
+            let out: string[] = [];
+            if (comment.kind === pxtc.decompiler.CommentKind.SingleLine) {
+                out.push("# " + comment.text)
+            }
+            else {
+                out.push(`"""`)
+                for (const line of comment.lines) {
+                    out.push(line);
+                }
+                out.push(`"""`)
+            }
+            return out;
+        }
+
         function emitStmtWithNewlines(s: ts.Statement): string[] {
             let out: string[] = [];
 
-            if (s.getLeadingTriviaWidth() > 0) {
-                let leading = s.getFullText().slice(0, s.getLeadingTriviaWidth())
-                let lns = leading.split("\n")
-                type TriviaLine = "unknown" | "blank" | ["comment", string]
-                const getTriviaLine = (s: string): TriviaLine => {
-                    let trimmed = s.trim()
-                    if (!trimmed)
-                        return "blank"
-                    if (!trimmed.startsWith("//"))
-                        return "unknown"
-                    let com = "#" + trimmed.slice(2, trimmed.length)
-                    return ["comment", com]
-                }
-                let trivia = lns
-                    .map(getTriviaLine)
-                    .filter(s => s !== "unknown")
-                    .map(s => s === "blank" ? "" : s[1])
-                if (trivia && !trivia[0])
-                    trivia.shift()
-                if (trivia && !trivia[trivia.length - 1])
-                    trivia.pop()
-                out = out.concat(trivia)
+            const comments = pxtc.decompiler.getCommentsForStatement(s, commentMap);
+
+            for (const comment of comments) {
+                out.push(...emitComment(comment));
             }
 
             out = out.concat(emitStmt(s))
@@ -330,7 +342,7 @@ namespace pxt.py {
         function emitWhileStmt(s: ts.WhileStatement): string[] {
             let [cond, condSup] = emitExp(s.expression)
             let body = emitBody(s.statement)
-            let whileStmt = expWrap("while ", cond);
+            let whileStmt = expWrap("while ", cond, ":");
             return condSup.concat(whileStmt).concat(body)
         }
         type RangeItr = {
@@ -1086,6 +1098,13 @@ namespace pxt.py {
                     pxt.tickEvent("depython.todo", { kind: s.kind })
                     return throwError(s, 3010, "TODO: Unsupported call site where caller the arguments outnumber the callee parameters: " + s.getText());
                 }
+            }
+
+            // special case TD_ID function, don't emit them
+            const sym = tryGetSymbol(s.expression);
+            if (s.arguments && sym && sym.attributes.shim == "TD_ID") {
+                // this function is a no-op and should not be emitted
+                return emitExp(s.arguments[0])
             }
 
             // TODO inspect type info to rewrite things like console.log, Math.max, etc.

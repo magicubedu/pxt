@@ -26,7 +26,8 @@ declare namespace pxt {
 
     interface CodeCardAction {
         url: string,
-        editor?: CodeCardEditorType
+        editor?: CodeCardEditorType;
+        cardType?: CodeCardType;
     }
 
     /**
@@ -49,6 +50,7 @@ declare namespace pxt {
         simFiles?: string[];
         testFiles?: string[];
         preferredEditor?: string; // tsprj, blocksprj, pyprj
+        languageRestriction?: pxt.editor.LanguageRestriction; // language restrictions that have been placed on the package
         testDependencies?: pxt.Map<string>;
         cppDependencies?: pxt.Map<string>;
         public?: boolean;

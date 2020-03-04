@@ -628,11 +628,9 @@ namespace ts.pxtc {
                         addr += 256
                     }
                 } else {
-                    upper = 0x2000
                     addr = 0
-                    myhex.push(hexBytes([0x02, 0x00, 0x00, 0x04, upper >> 8, upper & 0xff]))
                     for (let i = 0; i < bin.packedSource.length; i += 16) {
-                        let bytes = [0x10, (addr >> 8) & 0xff, addr & 0xff, 0]
+                        let bytes = [0x10, (addr >> 8) & 0xff, addr & 0xff, 0x0E]
                         for (let j = 0; j < 16; ++j) {
                             bytes.push((bin.packedSource.charCodeAt(i + j) || 0) & 0xff)
                         }
@@ -1204,12 +1202,12 @@ __flash_checksums:
                 for (let extinfo of otherVariants) {
                     const localOpts = U.flatClone(opts0)
                     localOpts.extinfo = extinfo
-                    pxt.setAppTargetVariant(extinfo.appVariant, { temporary: true })
+                    //pxt.setAppTargetVariant(extinfo.appVariant, { temporary: true })
                     hexfile.setupFor(localOpts.target, extinfo)
                     assembleAndPatch(src, bin, localOpts, cres)
                 }
             } finally {
-                pxt.setAppTargetVariant(null, { temporary: true })
+                //pxt.setAppTargetVariant(null, { temporary: true })
                 hexfile.setupFor(opts0.target, opts0.extinfo)
             }
     }

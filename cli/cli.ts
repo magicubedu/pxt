@@ -36,10 +36,25 @@ let forceBuild = false; // don't use cache
 
 Error.stackTraceLimit = 100;
 
+function parseHwVariant(parsed: commandParser.ParsedCommand) {
+    let hwvariant = parsed && parsed.flags["hwvariant"] as string;
+    if (hwvariant) {
+        // map known variants
+        const knowVariants: pxt.Map<string> = {
+            "f4": "stm32f401",
+            "d5": "samd51",
+            "p0": "rpi"
+        }
+        hwvariant = knowVariants[hwvariant.toLowerCase()] || hwvariant;
+        if (!/^hw---/.test(hwvariant)) hwvariant = 'hw---' + hwvariant;
+    }
+    return hwvariant;
+}
+
 function parseBuildInfo(parsed?: commandParser.ParsedCommand) {
     const cloud = parsed && parsed.flags["cloudbuild"];
     const local = parsed && parsed.flags["localbuild"];
-    let hwvariant = parsed && parsed.flags["hwvariant"] as string;
+    const hwvariant = parseHwVariant(parsed);
     forceBuild = parsed && !!parsed.flags["force"];
     if (cloud && local)
         U.userError("cannot specify local-build and cloud-build together");
@@ -54,8 +69,7 @@ function parseBuildInfo(parsed?: commandParser.ParsedCommand) {
     }
 
     if (hwvariant) {
-        if (!/^hw---/.test(hwvariant)) hwvariant = 'hw---' + hwvariant;
-        pxt.debug(`setting hardware variant to ${hwvariant}`);
+        pxt.log(`setting hardware variant to ${hwvariant}`);
         pxt.setHwVariant(hwvariant)
     }
 }
@@ -364,15 +378,23 @@ function ciAsync() {
 
     const latest = branch == "master" ? "latest" : "git-" + branch
     // upload locs on build on master
-    const uploadLocs = /^(master|v\d+\.\d+\.\d+)$/.test(branch)
-        && !pullRequest
-        && !!pxt.appTarget.uploadDocs;
+    const masterOrReleaseBranchRx = /^(master|v\d+\.\d+\.\d+)$/;
+    const apiStringBranchRx = pxt.appTarget.uploadApiStringsBranchRx
+        ? new RegExp(pxt.appTarget.uploadApiStringsBranchRx)
+        : masterOrReleaseBranchRx;
+    const uploadDocs = !pullRequest
+        && !!pxt.appTarget.uploadDocs
+        && masterOrReleaseBranchRx.test(branch);
+    const uploadApiStrings = !pullRequest
+        && (!!pxt.appTarget.uploadDocs || pxt.appTarget.uploadApiStringsBranchRx)
+        && apiStringBranchRx.test(branch);
 
     pxt.log(`tag: ${tag}`);
     pxt.log(`branch: ${branch}`);
-    pxt.log(`pull request: ${pullRequest}`);
-    pxt.log(`upload locs: ${uploadLocs}`);
     pxt.log(`latest: ${latest}`);
+    pxt.log(`pull request: ${pullRequest}`);
+    pxt.log(`upload api strings: ${uploadApiStrings}`);
+    pxt.log(`upload docs: ${uploadDocs}`);
 
     function npmPublishAsync() {
         if (!npmPublish) return Promise.resolve();
@@ -383,12 +405,14 @@ function ciAsync() {
     if (pkg["name"] == "pxt-core") {
         pxt.log("pxt-core build");
         let p = npmPublishAsync();
-        if (uploadLocs)
+        if (uploadDocs)
             p = p
-                .then(() => crowdin.execCrowdinAsync("upload", "built/strings.json"))
                 .then(() => buildWebStringsAsync())
-                .then(() => crowdin.execCrowdinAsync("upload", "built/webstrings.json"))
-                .then(() => crowdin.internalUploadTargetTranslationsAsync(!!tag));
+                .then(() => crowdin.execCrowdinAsync("upload", "built/webstrings.json"));
+        if (uploadApiStrings)
+            p = p.then(() => crowdin.execCrowdinAsync("upload", "built/strings.json"))
+        if (uploadDocs || uploadApiStrings)
+            p = p.then(() => crowdin.internalUploadTargetTranslationsAsync(uploadApiStrings, uploadDocs));
         return p;
     } else {
         pxt.log("target build");
@@ -409,13 +433,13 @@ function ciAsync() {
             })
             .then(() => {
                 pxt.log("target uploaded");
-                if (uploadLocs) {
-                    pxt.log("uploading translations...");
-                    return crowdin.internalUploadTargetTranslationsAsync(!!tag)
+                if (uploadDocs || uploadApiStrings) {
+                    return crowdin.internalUploadTargetTranslationsAsync(uploadApiStrings, uploadDocs)
                         .then(() => pxt.log("translations uploaded"));
+                } else {
+                    pxt.log("skipping translations upload");
+                    return Promise.resolve();
                 }
-                pxt.log("skipping translations upload");
-                return Promise.resolve();
             });
     }
 }
@@ -1460,24 +1484,6 @@ function buildFolderAndBrowserifyAsync(p: string, optional?: boolean, outputName
     })
 }
 
-function buildPxtAsync(includeSourceMaps = false): Promise<string[]> {
-    let ksd = "node_modules/pxt-core"
-    if (!fs.existsSync(ksd + "/pxtlib/main.ts")) return Promise.resolve([]);
-
-    console.log(`building ${ksd}...`);
-    return nodeutil.spawnAsync({
-        cmd: nodeutil.addCmd("npm"),
-        args: includeSourceMaps ? ["run", "build", "sourceMaps=true"] : ["run", "build"],
-        cwd: ksd
-    }).then(() => {
-        console.log("local pxt-core built.")
-        return [ksd]
-    }, e => {
-        buildFailed("local pxt-core build FAILED", e)
-        return [ksd]
-    });
-}
-
 let dirsToWatch: string[] = []
 
 interface CiBuildInfo {
@@ -1847,62 +1853,6 @@ function buildWebStringsAsync() {
     return Promise.resolve()
 }
 
-function thirdPartyNoticesAsync(parsed: commandParser.ParsedCommand): Promise<void> {
-    const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-    let tpn = `
-/*!----------------- MakeCode (PXT) ThirdPartyNotices -------------------------------------------------------
-
-MakeCode (PXT) uses third party material from the projects listed below.
-The original copyright notice and the license under which Microsoft
-received such third party material are set forth below. Microsoft
-reserves all other rights not expressly granted, whether by
-implication, estoppel or otherwise.
-
-In the event that we accidentally failed to list a required notice, please
-bring it to our attention. Post an issue or email us:
-
-           makecode@microsoft.com
-
----------------------------------------------
-Third Party Code Components
----------------------------------------------
-
-    `;
-
-    function lic(dep: string) {
-        const license = path.join("node_modules", dep, "LICENSE");
-        if (fs.existsSync(license))
-            return fs.readFileSync(license, 'utf8');
-        const readme = fs.readFileSync("README.md", "utf8");
-        const lic = /## License([^#]+)/.exec(readme);
-        if (lic)
-            return lic[1];
-
-        return undefined;
-    }
-
-    for (const dep of Object.keys(pkg.dependencies).concat(Object.keys(pkg.devDependencies))) {
-        pxt.log(`scanning ${dep}`)
-        const license = lic(dep);
-        if (!license)
-            pxt.log(`no license for ${dep} at ${license}`);
-        else
-            tpn += `
------------------ ${dep} -------------------
-
-${license}
-
----------------------------------------------
-`
-    }
-
-    tpn += `
-------------- End of ThirdPartyNotices --------------------------------------------------- */`;
-
-    nodeutil.writeFileSync("THIRD-PARTY-NOTICES.txt", tpn, { encoding: 'utf8' });
-    return Promise.resolve();
-}
-
 function updateDefaultProjects(cfg: pxt.TargetBundle) {
     let defaultProjects = [
         pxt.BLOCKS_PROJECT_NAME,
@@ -2004,6 +1954,7 @@ function compressApiInfo(inf: Map<pxt.PackageApiInfo>) {
         if (isEmpty(attrs))
             attrs = undefined
         const kind = sym.snippet !== undefined ? -sym.kind : sym.kind
+        const pyQName = sym.pyQName !== sym.qName ? sym.pyQName : undefined
         return {
             kind: kind == 7 ? undefined : kind,
             retType: sym.retType == "void" ? undefined : sym.retType,
@@ -2021,7 +1972,8 @@ function compressApiInfo(inf: Map<pxt.PackageApiInfo>) {
             })) : undefined,
             isInstance: sym.isInstance || undefined,
             isReadOnly: sym.isReadOnly || undefined,
-        } as any
+            pyQName: pyQName
+        } as pxtc.SymbolInfo;
     }
 
     inf = U.clone(inf)
@@ -2319,12 +2271,12 @@ function buildAndWatchTargetAsync(includeSourceMaps: boolean, rebundle: boolean)
         simDirectories = simDirectories.filter(fn => fs.existsSync(fn));
     }
 
-    return buildAndWatchAsync(() => buildPxtAsync(includeSourceMaps)
-        .then(buildCommonSimAsync, e => buildFailed("common sim build failed: " + e.message, e))
+    return buildAndWatchAsync(() => buildCommonSimAsync()
+        .catch(e => buildFailed("common sim build failed: " + e.message, e))
         .then(() => internalBuildTargetAsync({ localDir: true, rebundle }))
         .catch(e => buildFailed("target build failed: " + e.message, e))
         .then(() => {
-            let toWatch = [path.resolve("node_modules/pxt-core")].concat(dirsToWatch)
+            let toWatch = dirsToWatch.slice();
             if (hasCommonPackages) {
                 toWatch = toWatch.concat(simDirectories);
             }
@@ -2855,10 +2807,7 @@ export function installAsync(parsed?: commandParser.ParsedCommand): Promise<void
     pxt.log("installing dependencies...");
     ensurePkgDir();
     const packageName = parsed && parsed.args.length ? parsed.args[0] : undefined;
-    let hwvariant = parsed && parsed.flags["hwvariant"] as string;
-    if (hwvariant && !/^hw---/.test(hwvariant))
-        hwvariant = 'hw---' + hwvariant;
-
+    const hwvariant = parseHwVariant(parsed);
     return installPackageNameAsync(packageName)
         .then(() => addDepsAsync())
         .then(() => mainPkg.installAllAsync())
@@ -3123,6 +3072,135 @@ export function exportCppAsync(parsed: commandParser.ParsedCommand) {
                 fs.writeFileSync(trg, opts.extinfo.extensionFiles[s])
             }
         })
+}
+
+export function downloadDiscourseTagAsync(parsed: commandParser.ParsedCommand): Promise<void> {
+    const rx = /```codecard((.|\s)*)```/;
+    const tag = parsed.args[0] as string;
+    if (!tag)
+        U.userError("Missing tag")
+    const out = parsed.flags["out"] as string || "temp";
+    const outmd = parsed.flags["md"] as string;
+    const discourseRoot = pxt.appTarget.appTheme
+        && pxt.appTarget.appTheme.socialOptions
+        && pxt.appTarget.appTheme.socialOptions.discourse;
+    if (!discourseRoot)
+        U.userError("Target not configured for discourse");
+    if (outmd && !fs.existsSync(outmd))
+        U.userError(`${outmd} file not found`)
+    let md: string = outmd && fs.readFileSync(outmd, { encoding: "utf8" });
+
+    nodeutil.mkdirP(out);
+    let n = 0;
+    let newcards = 0;
+    let cards: pxt.CodeCard[] = [];
+    let lastCard: pxt.CodeCard = undefined;
+    // parse existing cards
+    if (md) {
+        md.replace(rx, (m, c) => {
+            cards = JSON.parse(c);
+            lastCard = cards.pop();
+            return "";
+        })
+    }
+    return pxt.discourse.topicsByTag(discourseRoot, tag)
+        .then(topics => Promise.mapSeries(topics, topic => {
+            pxt.log(`  ${topic.title}`)
+            return pxt.discourse.extractSharedIdFromPostUrl(topic.url)
+                .then(id => {
+                    if (!id) {
+                        pxt.log(`  --> unknown project id`)
+                        return Promise.resolve();
+                    }
+                    n++;
+                    return extractAsyncInternal(id, out, false)
+                        .then(() => {
+                            // does the current card have an image?
+                            let card = cards.filter(c => c.url == topic.url)[0];
+                            if (card && card.imageUrl) {
+                                pxt.log(`${card.name} already in markdown`)
+                                return Promise.resolve(); // already handled
+                            }
+
+                            newcards++;
+                            card = topic;
+                            card.name = topic.title;
+                            delete card.title;
+                            card.name = card.name
+                                .replace(/^\s*(introducing|presenting):?\s*/i, '');
+                            card.description = "";
+                            cards.push(card);
+
+                            const pfn = `./docs/static/discourse/${id}.`;
+                            if (md && !["png", "jpg", "gif"].some(ext => nodeutil.fileExistsSync(pfn + ext))) {
+                                return downloadImageAsync(id, topic, `https://makecode.com/api/${id}/thumb`)
+                                    .catch(e => {
+                                        // no image
+                                        pxt.debug(`no thumb ${e}`);
+                                        // use image from forum
+                                        if (topic.imageUrl && !/\.svg$/.test(topic.imageUrl))
+                                            return downloadImageAsync(id, topic, topic.imageUrl);
+                                        else
+                                            throw e; // bail out
+                                    })
+                            }
+                            return Promise.resolve();
+                        }).catch(e => {
+                            pxt.log(`error: project ${id} could not be loaded or no image`);
+                        });
+                })
+        }))
+        .then(() => {
+            if (md) {
+                // inject updated cards
+                if (lastCard)
+                    cards.push(lastCard);
+                cards.forEach(card => delete (card as any).id);
+                md = md.replace(rx, (m, c) => {
+                    return `\`\`\`codecard
+${JSON.stringify(cards, null, 4)}
+\`\`\``;
+                })
+                nodeutil.writeFileSync(outmd, md, { encoding: "utf8" });
+            }
+            pxt.log(`downloaded ${n} programs (${newcards} new) from tag ${tag}`)
+        })
+
+    function downloadImageAsync(id: string, topic: pxt.CodeCard, url: string): Promise<void> {
+        return pxt.Util.requestAsync({
+            url: `https://makecode.com/api/${id}/thumb`,
+            method: "GET",
+            responseArrayBuffer: true,
+            headers: {
+                "accept": "image/*"
+            }
+        }).then(resp => {
+            if (resp.buffer) {
+                const m = /image\/(png|jpeg|gif)/.exec(resp.headers["content-type"] as string);
+                if (!m) {
+                    pxt.log(`unknown image type: ${resp.headers["content-type"]}`);
+                } else {
+                    let ext = m[1];
+                    if (ext == "jpeg") ext = "jpg";
+                    const ifn = `/static/discourse/${id}.${ext}`;
+                    const localifn = "./docs" + ifn;
+                    nodeutil.writeFileSync(localifn, new Buffer(resp.buffer as ArrayBuffer));
+                    if (/\.(jpg|png)/.test(ifn))
+                        topic.imageUrl = ifn;
+                    else if (/\.gif/.test(ifn)) {
+                        topic.largeImageUrl = ifn;
+                        topic.imageUrl = `/static/discourse/${id}.png`;
+                        // render png
+                        nodeutil.spawnAsync({
+                            cmd: "magick",
+                            cwd: `./docs/static/discourse`,
+                            args: [`${id}.gif[0]`, `${id}.png`]
+                        })
+                    }
+                }
+            }
+        });
+    }
 }
 
 export function formatAsync(parsed: commandParser.ParsedCommand) {
@@ -4082,7 +4160,7 @@ function dumpheapAsync(c: commandParser.ParsedCommand) {
 function dumpmemAsync(c: commandParser.ParsedCommand) {
     ensurePkgDir()
     return mainPkg.loadAsync()
-        .then(() => gdb.dumpMemAsync(c.args[0]))
+        .then(() => gdb.dumpMemAsync(c.args))
 }
 
 async function buildDalDTSAsync(c: commandParser.ParsedCommand) {
@@ -4677,7 +4755,8 @@ export function extractAsync(parsed: commandParser.ParsedCommand): Promise<void>
     const vscode = !!parsed.flags["code"];
     const out = parsed.flags["code"] || '.';
     const filename = parsed.args[0];
-    return extractAsyncInternal(filename, out as string, vscode);
+    return extractAsyncInternal(filename, out as string, vscode)
+        .then(() => { });
 }
 
 function isScriptId(id: string) {
@@ -4717,13 +4796,13 @@ function fetchTextAsync(filename: string): Promise<Buffer> {
         return readFileAsync(filename)
 }
 
-function extractAsyncInternal(filename: string, out: string, vscode: boolean): Promise<void> {
+function extractAsyncInternal(filename: string, out: string, vscode: boolean): Promise<string[]> {
     if (filename && nodeutil.existsDirSync(filename)) {
         pxt.log(`extracting folder ${filename}`);
         return Promise.all(fs.readdirSync(filename)
             .filter(f => /\.(hex|uf2)/.test(f))
             .map(f => extractAsyncInternal(path.join(filename, f), out, vscode)))
-            .then(() => { });
+            .then(() => [filename]);
     }
 
     return fetchTextAsync(filename)
@@ -4733,6 +4812,7 @@ function extractAsyncInternal(filename: string, out: string, vscode: boolean): P
                 pxt.debug('launching code...')
                 dirs.forEach(dir => openVsCode(dir));
             }
+            return dirs;
         })
 }
 
@@ -4772,16 +4852,16 @@ function extractBufferAsync(buf: Buffer, outDir: string): Promise<string[]> {
         .then(() => {
             let str = buf.toString("utf8")
             if (str[0] == ":") {
-                console.log("Detected .hex file.")
+                pxt.debug("Detected .hex file.")
                 return unpackHexAsync(buf)
             } else if (str[0] == "U") {
-                console.log("Detected .uf2 file.")
+                pxt.debug("Detected .uf2 file.")
                 return unpackHexAsync(buf)
             } else if (str[0] == "{") {  // JSON
-                console.log("Detected .json file.")
+                pxt.debug("Detected .json file.")
                 return JSON.parse(str)
             } else if (buf[0] == 0x5d) { // JSZ
-                console.log("Detected .jsz/.pxt file.")
+                pxt.debug("Detected .jsz/.pxt file.")
                 return pxt.lzmaDecompressAsync(buf as any)
                     .then(str => JSON.parse(str))
             } else
@@ -4789,14 +4869,14 @@ function extractBufferAsync(buf: Buffer, outDir: string): Promise<string[]> {
         })
         .then(json => {
             if (!json) {
-                console.log("Couldn't extract.")
+                pxt.log("Couldn't extract.")
                 return undefined;
             }
             if (json.meta && json.source) {
                 json = typeof json.source == "string" ? JSON.parse(json.source) : json.source
             }
             if (Array.isArray(json.scripts)) {
-                console.log("Legacy TD workspace.")
+                pxt.debug("Legacy TD workspace.")
                 json.projects = json.scripts.map((scr: any) => ({
                     name: scr.header.name,
                     files: oneFile(scr.source, scr.header.editor)
@@ -4805,8 +4885,8 @@ function extractBufferAsync(buf: Buffer, outDir: string): Promise<string[]> {
             }
 
             if (json[pxt.CONFIG_NAME]) {
-                console.log("Raw JSON files.")
-                let cfg: pxt.PackageConfig = JSON.parse(json[pxt.CONFIG_NAME])
+                pxt.debug("Raw JSON files.")
+                let cfg: pxt.PackageConfig = pxt.Package.parseAndValidConfig(json[pxt.CONFIG_NAME])
                 let files = json
                 json = {
                     projects: [{
@@ -4818,7 +4898,7 @@ function extractBufferAsync(buf: Buffer, outDir: string): Promise<string[]> {
 
             let prjs: SavedProject[] = json.projects
             if (!prjs) {
-                console.log("No projects found.")
+                pxt.log("No projects found.")
                 return undefined;
             }
             const dirs = writeProjects(prjs, outDir)
@@ -5138,50 +5218,60 @@ function internalCheckDocsAsync(compileSnippets?: boolean, re?: string, fix?: bo
                     pxt.debug(`card ${card.shortName || card.name}`);
                     switch (card.cardType) {
                         case "tutorial": {
-                            const tutorialMd = nodeutil.resolveMd(docsRoot, card.url);
-                            const tutorial = pxt.tutorial.parseTutorial(tutorialMd);
-                            const pkgs: pxt.Map<string> = { "blocksprj": "*" };
-                            pxt.Util.jsonMergeFrom(pkgs, pxt.gallery.parsePackagesFromMarkdown(tutorialMd) || {});
+                            let urls = [card.url]
+                            if (card.otherActions) card.otherActions.forEach(a => { if (a.url) urls.push(a.url) });
+                            for (let url of urls) {
+                                const tutorialMd = nodeutil.resolveMd(docsRoot, url);
+                                const tutorial = pxt.tutorial.parseTutorial(tutorialMd);
+                                const pkgs: pxt.Map<string> = { "blocksprj": "*" };
+                                pxt.Util.jsonMergeFrom(pkgs, pxt.gallery.parsePackagesFromMarkdown(tutorialMd) || {});
 
-                            if (tutorial.code.indexOf("namespace") !== -1) {
-                                // Handles tilemaps and spritekinds
-                                tutorial.steps
-                                    .filter(step => !!step.contentMd)
-                                    .forEach((step, stepIndex) => getCodeSnippets(`${gal.name}-${stepIndex}`, step.contentMd)
-                                        .forEach((snippet, snippetIndex) => {
-                                            snippet.packages = pkgs;
-                                            addSnippet(
-                                                snippet,
-                                                "tutorial" + `${gal.name}-${stepIndex}-${snippetIndex}`,
-                                                cardIndex
-                                            )
-                                        })
-                                    );
-                            }
-                            else {
-                                addSnippet(<CodeSnippet>{
-                                    name: card.name,
-                                    code: tutorial.code,
-                                    type: "blocks",
-                                    ext: "ts",
-                                    packages: pkgs
-                                }, "tutorial" + gal.name, cardIndex);
+                                // Handles tilemaps, spritekinds
+                                if (tutorial.code.indexOf("namespace") !== -1
+                                    // Handles ```python``` snippets
+                                    || (tutorial.language == "python")) {
+                                    tutorial.steps
+                                        .filter(step => !!step.contentMd)
+                                        .forEach((step, stepIndex) => getCodeSnippets(`${gal.name}-${stepIndex}`, step.contentMd)
+                                            .forEach((snippet, snippetIndex) => {
+                                                snippet.packages = pkgs;
+                                                addSnippet(
+                                                    snippet,
+                                                    "tutorial" + `${gal.name}-${stepIndex}-${snippetIndex}`,
+                                                    cardIndex
+                                                )
+                                            })
+                                        );
+                                }
+                                else {
+                                    addSnippet(<CodeSnippet>{
+                                        name: card.name,
+                                        code: tutorial.code,
+                                        type: "blocks",
+                                        ext: "ts",
+                                        packages: pkgs
+                                    }, "tutorial" + gal.name, cardIndex);
+                                }
                             }
 
                             break;
                         }
                         case "example": {
-                            const exMd = nodeutil.resolveMd(docsRoot, card.url);
-                            const prj = pxt.gallery.parseExampleMarkdown(card.name, exMd);
-                            const pkgs: pxt.Map<string> = { "blocksprj": "*" };
-                            pxt.U.jsonMergeFrom(pkgs, prj.dependencies);
-                            addSnippet(<CodeSnippet>{
-                                name: card.name,
-                                code: prj.filesOverride["main.ts"],
-                                type: "blocks",
-                                ext: "ts",
-                                packages: pkgs
-                            }, "example" + gal.name, cardIndex);
+                            let urls = [card.url]
+                            if (card.otherActions) card.otherActions.forEach(a => { if (a.url) urls.push(a.url) });
+                            for (let url of urls) {
+                                const exMd = nodeutil.resolveMd(docsRoot, url);
+                                const prj = pxt.gallery.parseExampleMarkdown(card.name, exMd);
+                                const pkgs: pxt.Map<string> = { "blocksprj": "*" };
+                                pxt.U.jsonMergeFrom(pkgs, prj.dependencies);
+                                addSnippet(<CodeSnippet>{
+                                    name: card.name,
+                                    code: prj.filesOverride["main.ts"],
+                                    type: "blocks",
+                                    ext: "ts",
+                                    packages: pkgs
+                                }, "example" + gal.name, cardIndex);
+                            }
                             break;
                         }
                     }
@@ -5973,7 +6063,6 @@ ${pxt.crowdin.KEY_VARIABLE} - crowdin key
         }
     }, c => pyconv.convertAsync(c.args, !!c.flags["internal"]))
 
-    advancedCommand("thirdpartynotices", "refresh third party notices", thirdPartyNoticesAsync);
     p.defineCommand({
         name: "cherrypick",
         aliases: ["cp"],
@@ -6035,7 +6124,7 @@ ${pxt.crowdin.KEY_VARIABLE} - crowdin key
     p.defineCommand({
         name: "memdump",
         help: "attempt to dump raw memory image using openocd",
-        argString: "<memdump-file.bin>",
+        argString: "[startAddr stopAddr] <memdump-file.bin>",
         aliases: ["dumpmem"],
         advanced: true,
     }, dumpmemAsync);
@@ -6070,6 +6159,7 @@ ${pxt.crowdin.KEY_VARIABLE} - crowdin key
         name: "uploadtrgtranslations",
         help: "upload translations for target",
         flags: {
+            apis: { description: "upload api strings" },
             docs: { description: "upload markdown docs folder as well" },
             test: { description: "test run, do not upload files to crowdin" }
         },
@@ -6131,6 +6221,26 @@ ${pxt.crowdin.KEY_VARIABLE} - crowdin key
         advanced: true,
         argString: "<target-directory>"
     }, exportCppAsync);
+
+    p.defineCommand({
+        name: "downloaddiscoursetag",
+        aliases: ["ddt"],
+        help: "Download program for a discourse tag",
+        advanced: true,
+        argString: "<tag>",
+        flags: {
+            out: {
+                description: "output folder, default is temp",
+                argument: "out",
+                type: "string"
+            },
+            md: {
+                description: "path of the markdown file to generate",
+                argument: "out",
+                type: "string"
+            }
+        }
+    }, downloadDiscourseTagAsync)
 
     function simpleCmd(name: string, help: string, callback: (c?: commandParser.ParsedCommand) => Promise<void>, argString?: string, onlineHelp?: boolean): void {
         p.defineCommand({ name, help, onlineHelp, argString }, callback);
@@ -6230,6 +6340,7 @@ export function mainCli(targetDir: string, args: string[] = process.argv.slice(2
     pxt.setAppTarget(trg)
 
     pxt.setCompileSwitches(process.env["PXT_COMPILE_SWITCHES"])
+    trg = pxt.appTarget
 
     let compileId = "none"
     if (trg.compileService) {

@@ -100,7 +100,7 @@
         }
     }
 
-    /* Blockly toolbox */
+    /* Toolbox */
     .pxtToolbox:not(.invertedToolbox) {
         span.blocklyTreeLabel {
             color: @HCblocklyTreeLabelColor;
@@ -114,6 +114,14 @@
         }
     }
 
+    #monacoEditor .monacoDraggableBlock {
+        background: none !important;
+
+        span.argName {
+            border: 1px solid rgba(255, 255, 255, .7);
+        }
+    }
+
     /* Blockly flyout */
     path.blocklyFlyoutBackground {
         fill: @HCblocklySvgColor !important;
@@ -124,6 +132,13 @@
     .monacoFlyout {
         background: @HCblocklySvgColor !important;
         border-right: 4px solid @HCtextColor !important;
+
+        .monacoBlock {
+            color: @HCtextColor !important;
+        }
+        .blockHandle {
+            background: @HCblocklySvgColor !important;
+        }
     }
 
     /* Main editor areas */
@@ -333,7 +348,25 @@
                 background-color: @HCbackground;
             }
             .header {
-                color: @HCbackground;
+                color: @HCtextColor;
+            }
+            .ui.grid {
+                background-color: @HChomeScreenBackground;
+                border-width: 2px 0;
+                border-color: @HCtextColor;
+                border-style: solid;
+            }
+            .actions {
+                .card-action {
+                    border: 2px solid @HCtextColor;
+                    .button.attached i {
+                        opacity: 1;
+                        color: @HCtextColor;
+                    }
+                }
+                .card-action-title {
+                    color: @HCtextColor;
+                }
             }
         }
     }
@@ -518,16 +551,36 @@
     }
 
     /* Tutorial */
-    .ui.message {
+    .ui.tutorialsegment {
         background-color: @HCbackground !important;
         color: @HCtextColor !important;
 
         .tutorialmessage {
-            outline: 1px solid @HCtextColor !important;
             border: none !important;
 
             &:focus {
                 color: @selected !important;
+            }
+
+        }
+
+        .tooltip, .tooltip:before {
+            background-color: @HCbackground;
+            border: 2px solid @HCtextColor;
+            color: @HCtextColor;
+        }
+
+        .tooltip:before {
+            border-color: @HCtextColor transparent transparent @HCtextColor !important;
+        }
+
+        .tutorialhint {
+            border-color: @HCtextColor;
+            background-color: @HCbackground;
+            color: @HCtextColor;
+
+            &:before {
+                border-right-color: @HCtextColor;
             }
         }
     }

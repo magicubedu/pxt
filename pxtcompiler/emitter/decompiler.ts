@@ -19,6 +19,35 @@ namespace ts.pxtc.decompiler {
         DecompileArgumentAsString = "decompileArgumentAsString"
     }
 
+    export interface CommentInfo {
+        kind: CommentKind;
+        hasTrailingNewline: boolean;
+        followedByEmptyLine: boolean;
+        isTrailingComment: boolean;
+
+        start: number;
+        end: number;
+        owner?: Node;
+        ownerStatement?: StatementNode;
+    }
+
+    export enum CommentKind {
+        SingleLine,
+        MultiLine
+    }
+
+    export interface MultiLineComment extends CommentInfo {
+        kind: CommentKind.MultiLine;
+        lines: string[];
+    }
+
+    export interface SingleLineComment extends CommentInfo {
+        kind: CommentKind.SingleLine;
+        text: string;
+    }
+
+    export type Comment = MultiLineComment | SingleLineComment;
+
     export const FILE_TOO_LARGE_CODE = 9266;
     export const DECOMPILER_ERROR = 9267;
 
@@ -164,7 +193,9 @@ namespace ts.pxtc.decompiler {
 
     interface ExpressionNode extends BlockNode {
         kind: "expr";
+        handlers?: Handler[];
         isShadow?: boolean;
+        id?: string;
     }
 
     interface StatementNode extends BlockNode {
@@ -172,7 +203,8 @@ namespace ts.pxtc.decompiler {
         handlers?: Handler[];
         next?: StatementNode;
         prev?: StatementNode;
-        comment?: string;
+        comment?: Comment[];
+        id?: string;
 
         // Optional data that Blockly ignores. We use it to associate statements with workspace comments
         data?: string;
@@ -189,10 +221,9 @@ namespace ts.pxtc.decompiler {
     }
 
     interface WorkspaceComment {
-        text: string;
-
         // Used for grouping comments and statements
         refId: string;
+        comment: Comment[];
     }
 
     type OutputNode = ExpressionNode | TextNode;
@@ -321,6 +352,7 @@ namespace ts.pxtc.decompiler {
         errorOnGreyBlocks?: boolean; // fail on grey blocks (usefull when testing docs)
         allowedArgumentTypes?: string[]; // a whitelist of types that can be decompiled for user defined function arguments
         generatedVarDeclarations?: pxt.Map<pxt.blocks.VarDeclaration>; // check variable declarations against those generated during block compilation
+        generateSourceMap?: boolean; // generate block ids
         /*@internal*/
         includeGreyBlockMessages?: boolean; // adds error attributes to the mutations in typescript_statement blocks (for debug pruposes)
     }
@@ -337,10 +369,15 @@ namespace ts.pxtc.decompiler {
     export function decompileToBlocks(blocksInfo: pxtc.BlocksInfo, file: ts.SourceFile, options: DecompileBlocksOptions, renameMap?: RenameMap): pxtc.CompileResult {
         let emittedBlocks = 0;
         let stmts: NodeArray<ts.Statement> = file.statements;
-        let result: pxtc.CompileResult = {
+        const result: pxtc.CompileResult = {
             blocksInfo: blocksInfo,
-            outfiles: {}, diagnostics: [], success: true, times: {}
+            outfiles: {},
+            diagnostics: [],
+            success: true,
+            times: {}
         }
+        if (options.generateSourceMap)
+            result.blockSourceMap = [];
         const env: DecompilerEnv = {
             blocks: blocksInfo,
             declaredFunctions: {},
@@ -362,6 +399,9 @@ namespace ts.pxtc.decompiler {
         const autoDeclarations: [string, ts.Node][] = [];
 
         const getCommentRef = (() => { let currentCommentId = 0; return () => `${currentCommentId++}` })();
+
+
+        const commentMap = buildCommentMap(file);
 
         const checkTopNode = (topLevelNode: Node) => {
             if (topLevelNode.kind === SK.FunctionDeclaration && !checkStatement(topLevelNode, env, false, true)) {
@@ -440,6 +480,16 @@ namespace ts.pxtc.decompiler {
         let n: StatementNode;
         try {
             n = codeBlock(stmts, undefined, true, undefined, !options.snippetMode);
+
+            // Emit all of the orphaned comments
+            for (const comment of commentMap) {
+                if (!comment.owner) {
+                    workspaceComments.push({
+                        refId: getCommentRef(),
+                        comment: [comment]
+                    });
+                }
+            }
         }
         catch (e) {
             if ((<any>e).programTooLarge) {
@@ -472,7 +522,8 @@ namespace ts.pxtc.decompiler {
         if (n) {
             emitStatementNode(n);
         } else if (!options.snippetMode && !stmts.length) {
-            write(`<block type="${ts.pxtc.ON_START_TYPE}"></block>`);
+            openBlockTag(ts.pxtc.ON_START_TYPE, mkStmt(ts.pxtc.ON_START_TYPE, stmts[0]));
+            closeBlockTag();
         }
 
         workspaceComments.forEach(c => {
@@ -540,18 +591,51 @@ ${output}</xml>`;
             }
         }
 
-        function mkStmt(type: string): StatementNode {
-            return {
+        // generated ids with the same entropy as blockly
+        function blocklyGenUid() {
+            const soup_ = '!#$%()*+,-./:;=?@[]^_`{|}~ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            const length = 20;
+            const soupLength = soup_.length;
+            const id = [];
+            for (let i = 0; i < length; i++) {
+                id[i] = soup_.charAt(Math.random() * soupLength);
+            }
+            return id.join('');
+        }
+
+        function mkId(type: string, node: ts.Node): string {
+            if (type == ts.pxtc.ON_START_TYPE)
+                return "xRRgvHNlG#rZ^u`HECiY";
+            const id = blocklyGenUid()
+            if (node) {
+                const startPos = node.getFullStart();
+                result.blockSourceMap.push(<pxt.blocks.BlockSourceInterval>{
+                    id,
+                    startPos,
+                    endPos: startPos + node.getFullWidth()
+                })
+            }
+            return id;
+        }
+
+        function mkStmt(type: string, node: ts.Node): StatementNode {
+            const stm: StatementNode = {
                 kind: "statement",
                 type
             };
+            if (result.blockSourceMap)
+                stm.id = mkId(type, node);
+            return stm;
         }
 
-        function mkExpr(type: string): ExpressionNode {
-            return {
+        function mkExpr(type: string, node: ts.Node): ExpressionNode {
+            const expr: ExpressionNode = {
                 kind: "expr",
                 type
             };
+            //if (result.blockSourceMap)
+            //    expr.id = mkId(type, node);
+            return expr;
         }
 
         function mkValue(name: string, value: ExpressionNode | TextNode, shadowType?: string, shadowMutation?: pxt.Map<string>): ValueNode {
@@ -582,7 +666,7 @@ ${output}</xml>`;
                 return;
             }
 
-            openBlockTag(n.type)
+            openBlockTag(n.type, n)
             emitBlockNodeCore(n);
 
             if (n.data !== undefined) {
@@ -600,7 +684,7 @@ ${output}</xml>`;
             }
 
             if (n.comment !== undefined) {
-                write(`<comment pinned="false">${U.htmlEscape(n.comment)}</comment>`)
+                write(`<comment pinned="false">${U.htmlEscape(formatCommentsForBlocks(n.comment))}</comment>`)
             }
 
             closeBlockTag();
@@ -727,15 +811,16 @@ ${output}</xml>`;
                     countBlock();
                 }
 
-                write(`<${tag} type="${U.htmlEscape(node.type)}">`)
+                write(`<${tag} ${node.id ? `id="${node.id}" ` : ''}type="${U.htmlEscape(node.type)}">`)
                 emitBlockNodeCore(node);
                 write(`</${tag}>`)
             }
         }
 
-        function openBlockTag(type: string) {
+        function openBlockTag(type: string, node: StatementNode) {
             countBlock();
-            write(`<block type="${U.htmlEscape(type)}">`)
+            const id = node && node.id;
+            write(`<block ${id ? `id="${node.id}" ` : ''}type="${U.htmlEscape(type)}">`)
         }
 
         function closeBlockTag() {
@@ -744,16 +829,19 @@ ${output}</xml>`;
 
         function emitWorkspaceComment(comment: WorkspaceComment) {
             let maxLineLength = 0;
-            const lines = comment.text.split("\n");
-            lines.forEach(line => maxLineLength = Math.max(maxLineLength, line.length));
+            const text = formatCommentsForBlocks(comment.comment);
+            if (text.trim()) {
+                const lines = text.split("\n");
+                lines.forEach(line => maxLineLength = Math.max(maxLineLength, line.length));
 
-            // These are just approximations but they are the best we can do outside the DOM
-            const width = Math.max(Math.min(maxLineLength * 10, maxCommentWidth), minCommentWidth);
-            const height = Math.max(Math.min(lines.length * 40, maxCommentHeight), minCommentHeight);
+                // These are just approximations but they are the best we can do outside the DOM
+                const width = Math.max(Math.min(maxLineLength * 10, maxCommentWidth), minCommentWidth);
+                const height = Math.max(Math.min(lines.length * 40, maxCommentHeight), minCommentHeight);
 
-            write(`<comment h="${height}" w="${width}" data="${U.htmlEscape(comment.refId)}">`)
-            write(U.htmlEscape(comment.text))
-            write(`</comment>`);
+                write(`<comment h="${height}" w="${width}" data="${U.htmlEscape(comment.refId)}">`)
+                write(U.htmlEscape(text))
+                write(`</comment>`);
+            }
         }
 
         function getOutputBlock(n: ts.Node): OutputNode {
@@ -824,6 +912,10 @@ ${output}</xml>`;
         function getTypeScriptExpressionBlock(n: ts.Node) {
             const text = applyRenamesInRange(n.getFullText(), n.getFullStart(), n.getEnd()).trim();
             trackVariableUsagesInText(n);
+
+            // Mark comments or else they are emitted twice
+            markCommentsInRange(n, commentMap);
+
             return getFieldBlock(pxtc.TS_OUTPUT_TYPE, "EXPRESSION", text);
         }
 
@@ -850,16 +942,16 @@ ${output}</xml>`;
                 rightValue = getValue(rightName, n.right, numberType);
             }
 
-            const result = mkExpr(npp.type);
-            result.fields = [];
+            const r = mkExpr(npp.type, n);
+            r.fields = [];
 
             if (npp.op) {
-                result.fields.push(getField("OP", npp.op))
+                r.fields.push(getField("OP", npp.op))
             }
 
-            result.inputs = [leftValue, rightValue];
+            r.inputs = [leftValue, rightValue];
 
-            return result;
+            return r;
 
         }
 
@@ -896,12 +988,12 @@ ${output}</xml>`;
                 }
             }
 
-            const result = mkExpr("text_join");
-            result.inputs = inputs;
-            result.mutation = {
+            const r = mkExpr("text_join", n);
+            r.inputs = inputs;
+            r.mutation = {
                 "items": inputs.length.toString()
             };
-            return result;
+            return r;
         }
 
         function getValue(name: string, contents: boolean | number | string | Node, shadowType?: string, shadowMutation?: pxt.Map<string>): ValueNode {
@@ -971,7 +1063,7 @@ ${output}</xml>`;
         }
 
         function getFieldBlock(type: string, fieldName: string, value: string, isShadow?: boolean): ExpressionNode {
-            const r = mkExpr(type);
+            const r = mkExpr(type, null);
             r.fields = [getField(fieldName, value)];
             r.isShadow = isShadow;
             return r;
@@ -1009,7 +1101,7 @@ ${output}</xml>`;
 
         // TODO: Add a real negation block
         function negateNumericNode(node: ts.Node): ExpressionNode {
-            const r = mkExpr("math_arithmetic");
+            const r = mkExpr("math_arithmetic", node);
             r.inputs = [
                 getValue("A", 0, numberType),
                 getValue("B", node, numberType)
@@ -1021,7 +1113,7 @@ ${output}</xml>`;
         function getPrefixUnaryExpression(node: PrefixUnaryExpression): OutputNode {
             switch (node.operator) {
                 case SK.ExclamationToken:
-                    const r = mkExpr("logic_negate");
+                    const r = mkExpr("logic_negate", node);
                     r.inputs = [getConditionalInput("BOOL", node.operand)];
                     return r;
                 case SK.PlusToken:
@@ -1064,10 +1156,10 @@ ${output}</xml>`;
             blockId = attributes.blockId || blockId;
 
             if (attributes.blockCombine)
-                return getPropertyGetBlock(n)
+                return getPropertyGetBlock(n, n)
 
             if (attributes.blockId === "lists_length" || attributes.blockId === "text_length") {
-                const r = mkExpr(U.htmlEscape(attributes.blockId));
+                const r = mkExpr(U.htmlEscape(attributes.blockId), n);
                 r.inputs = [getValue("VALUE", n.expression)];
 
                 return r;
@@ -1091,7 +1183,7 @@ ${output}</xml>`;
             const info = env.compInfo(callInfo);
 
             if (blockId && info && info.thisParameter) {
-                const r = mkExpr(blockId);
+                const r = mkExpr(blockId, n);
                 r.inputs = [getValue(U.htmlEscape(info.thisParameter.definitionName), n.expression, info.thisParameter.shadowBlockId)];
                 return r;
             }
@@ -1102,7 +1194,7 @@ ${output}</xml>`;
 
         function getEnumFieldBlock(idfn: SymbolInfo, value: string) {
             let f = /(?:%|\$)([a-zA-Z0-9_]+)/.exec(idfn.attributes.block);
-            const r = mkExpr(U.htmlEscape(idfn.attributes.blockId));
+            const r = mkExpr(U.htmlEscape(idfn.attributes.blockId), undefined);
             r.fields = [{
                 kind: "field",
                 name: U.htmlEscape(f[1]),
@@ -1112,7 +1204,7 @@ ${output}</xml>`;
         }
 
         function getArrayLiteralExpression(n: ts.ArrayLiteralExpression): ExpressionNode {
-            const r = mkExpr("lists_create_with");
+            const r = mkExpr("lists_create_with", n);
             r.inputs = n.elements.map((e, i) => getValue("ADD" + i, e));
             r.mutation = {
                 "items": n.elements.length.toString()
@@ -1121,7 +1213,7 @@ ${output}</xml>`;
         }
 
         function getElementAccessExpression(n: ts.ElementAccessExpression): ExpressionNode {
-            const r = mkExpr("lists_index_get");
+            const r = mkExpr("lists_index_get", n);
             r.inputs = [getValue("LIST", n.expression), getValue("INDEX", n.argumentExpression, numberType)]
             return r;
         }
@@ -1143,7 +1235,7 @@ ${output}</xml>`;
 
             const comp = pxt.blocks.compileInfo(api);
 
-            const r = mkExpr(api.attributes.blockId);
+            const r = mkExpr(api.attributes.blockId, t);
 
             const text = (t.template as ts.NoSubstitutionTemplateLiteral).text;
 
@@ -1181,7 +1273,9 @@ ${output}</xml>`;
             else {
                 switch (node.kind) {
                     case SK.Block:
-                        return codeBlock((node as ts.Block).statements, next, topLevel);
+                        let bBlock = codeBlock((node as ts.Block).statements, next, topLevel);
+
+                        return bBlock;
                     case SK.ExpressionStatement:
                         return getStatementBlock((node as ts.ExpressionStatement).expression, next, parent || node, asExpression, topLevel);
                     case SK.VariableStatement:
@@ -1208,7 +1302,6 @@ ${output}</xml>`;
                             // never get used in the blocks (and thus won't be emitted again)
 
                             trackAutoDeclaration(decl);
-                            getComments(parent || node);
                             return getNext();
                         }
                         stmt = getVariableDeclarationStatement(decl);
@@ -1246,6 +1339,7 @@ ${output}</xml>`;
                     case SK.EnumDeclaration:
                     case SK.ModuleDeclaration:
                         // If the enum declaration made it past the checker then it is emitted elsewhere
+                        markCommentsInRange(node, commentMap);
                         return getNext();
                     default:
                         if (next) {
@@ -1282,34 +1376,114 @@ ${output}</xml>`;
                 return undefined;
             }
 
-            function getComments(commented: Node) {
-                const commentRanges = ts.getLeadingCommentRangesOfNode(commented, file)
-                if (commentRanges) {
-                    const wsCommentRefs: string[] = [];
-                    const commentText = getCommentText(commentRanges, node, wsCommentRefs)
+            /**
+             * We split up comments according to the following rules:
+             *      1. If the comment is not top-level:
+             *          a. Combine it with all comments for the following statement
+             *          b. If there is no following statement in the current block, group it with the previous statement
+             *          c. If there are no statements inside the block, group it with the parent block
+             *          d. If trailing the same line as the statement, group it with the comments for that statement
+             *      2. If the comment is top-level:
+             *          b. If the comment is followed by an empty line, it becomes a workspace comment
+             *          c. If the comment is followed by a multi-line comment, it becomes a workspace comment
+             *          a. If the comment is a single-line comment, combine it with the next single-line comment
+             *          d. If the comment is not followed with an empty line, group it with the next statement or event
+             *          e. All other comments are workspace comments
+             */
 
-                    if (stmt) {
-                        if (wsCommentRefs.length) {
-                            stmt.data = wsCommentRefs.join(";")
+            function getComments(commented: Node) {
+                let comments: Comment[] = [];
+                let current: Comment;
+                for (let i = 0; i < commentMap.length; i++) {
+                    current = commentMap[i];
+                    if (!current.owner && current.start >= commented.pos && current.end <= commented.end) {
+                        current.owner = commented;
+                        current.ownerStatement = stmt;
+                        comments.push(current);
+                    }
+
+                    if (current.start > commented.end) break;
+                }
+
+                if (current && current.isTrailingComment) {
+                    const endLine = ts.getLineAndCharacterOfPosition(file, commented.end);
+                    const commentLine = ts.getLineAndCharacterOfPosition(file, current.start);
+
+                    if (endLine.line === commentLine.line) {
+                        // If the comment is trailing and on the same line as the statement, it probably belongs
+                        // to this statement. Remove it from any statement it's already assigned to and any workspace
+                        // comments
+                        if (current.ownerStatement) {
+                            current.ownerStatement.comment.splice(current.ownerStatement.comment.indexOf(current), 1);
+
+                            for (const wsComment of workspaceComments) {
+                                wsComment.comment.splice(wsComment.comment.indexOf(current), 1)
+                            }
                         }
-                        if (commentText && stmt) {
-                            stmt.comment = commentText;
-                        }
-                        else {
-                            // ERROR TODO
-                        }
+                        current.owner = commented;
+                        current.ownerStatement = stmt;
+                        comments.push(current);
                     }
                 }
 
+                if (comments.length) {
+                    const wsCommentRefs: string[] = [];
+
+                    if (isTopLevelComment(commented)) {
+                        let currentWorkspaceComment: Comment[] = [];
+
+                        const localWorkspaceComments: Comment[][] = [];
+
+                        comments.forEach((comment, index) => {
+                            let beforeStatement = comment.owner && comment.start < comment.owner.getStart();
+                            if (comment.kind === CommentKind.MultiLine && beforeStatement) {
+                                if (currentWorkspaceComment.length) {
+                                    localWorkspaceComments.push(currentWorkspaceComment);
+                                    currentWorkspaceComment = [];
+                                }
+                                if (index != comments.length - 1) {
+                                    localWorkspaceComments.push([comment]);
+                                    return;
+                                }
+                            }
+
+                            currentWorkspaceComment.push(comment);
+
+                            if (comment.followedByEmptyLine && beforeStatement) {
+                                localWorkspaceComments.push(currentWorkspaceComment);
+                                currentWorkspaceComment = [];
+                            }
+                        });
+
+                        comments = currentWorkspaceComment;
+
+                        localWorkspaceComments.forEach(comment => {
+                            const refId = getCommentRef();
+
+                            wsCommentRefs.push(refId);
+                            workspaceComments.push({ comment, refId });
+                        });
+                    }
+
+                    if (stmt) {
+                        if (wsCommentRefs.length) {
+                            if (stmt.data) stmt.data += ";" + wsCommentRefs.join(";")
+                            else stmt.data = wsCommentRefs.join(";")
+                        }
+                        if (comments && comments.length) {
+                            if (stmt.comment) stmt.comment = stmt.comment.concat(comments);
+                            else stmt.comment = comments;
+                        }
+                    }
+                }
             }
         }
 
         function getTypeScriptStatementBlock(node: ts.Node, prefix?: string, err?: string): StatementNode {
-
             if (options.errorOnGreyBlocks)
                 error(node);
 
-            const r = mkStmt(pxtc.TS_STATEMENT_TYPE);
+            const r = mkStmt(pxtc.TS_STATEMENT_TYPE, node);
             r.mutation = {}
 
             trackVariableUsagesInText(node);
@@ -1320,6 +1494,8 @@ ${output}</xml>`;
 
             text = applyRenamesInRange(text, start, end);
 
+            // Mark comments or else they are emitted twice
+            markCommentsInRange(node, commentMap);
 
             if (prefix) {
                 text = prefix + text;
@@ -1354,17 +1530,17 @@ ${output}</xml>`;
         }
 
         function getContinueStatementBlock(node: ts.Node): StatementNode {
-            const r = mkStmt(pxtc.TS_CONTINUE_TYPE);
+            const r = mkStmt(pxtc.TS_CONTINUE_TYPE, node);
             return r;
         }
 
         function getBreakStatementBlock(node: ts.Node): StatementNode {
-            const r = mkStmt(pxtc.TS_BREAK_TYPE);
+            const r = mkStmt(pxtc.TS_BREAK_TYPE, node);
             return r;
         }
 
         function getDebuggerStatementBlock(node: ts.Node): StatementNode {
-            const r = mkStmt(pxtc.TS_DEBUGGER_TYPE);
+            const r = mkStmt(pxtc.TS_DEBUGGER_TYPE, node);
             return r;
         }
 
@@ -1376,7 +1552,7 @@ ${output}</xml>`;
             }
 
             const attributes = attrs(info);
-            const res = mkStmt(attributes.blockId);
+            const res = mkStmt(attributes.blockId, node);
             res.fields = [];
 
             const leds = ((arg as ts.StringLiteral).text || '').replace(/\s+/g, '');
@@ -1405,17 +1581,17 @@ ${output}</xml>`;
             switch (n.operatorToken.kind) {
                 case SK.EqualsToken:
                     if (n.left.kind === SK.Identifier) {
-                        return getVariableSetOrChangeBlock(n.left as ts.Identifier, n.right);
+                        return getVariableSetOrChangeBlock(n, n.left as ts.Identifier, n.right);
                     }
                     else if (n.left.kind == SK.PropertyAccessExpression) {
-                        return getPropertySetBlock(n.left as ts.PropertyAccessExpression, n.right, "@set@");
+                        return getPropertySetBlock(n, n.left as ts.PropertyAccessExpression, n.right, "@set@");
                     }
                     else {
-                        return getArraySetBlock(n.left as ts.ElementAccessExpression, n.right);
+                        return getArraySetBlock(n, n.left as ts.ElementAccessExpression, n.right);
                     }
                 case SK.PlusEqualsToken:
                     if (isTextJoin(n)) {
-                        const r = mkStmt("variables_set");
+                        const r = mkStmt("variables_set", n);
                         const renamed = getVariableName(n.left as ts.Identifier);
                         trackVariableUsage(renamed, ReferenceType.InBlocksOnly);
                         r.inputs = [mkValue("VALUE", getTextJoin(n), numberType)];
@@ -1424,11 +1600,11 @@ ${output}</xml>`;
                     }
 
                     if (n.left.kind == SK.PropertyAccessExpression)
-                        return getPropertySetBlock(n.left as ts.PropertyAccessExpression, n.right, "@change@");
+                        return getPropertySetBlock(n, n.left as ts.PropertyAccessExpression, n.right, "@change@");
                     else
-                        return getVariableSetOrChangeBlock(n.left as ts.Identifier, n.right, true);
+                        return getVariableSetOrChangeBlock(n, n.left as ts.Identifier, n.right, true);
                 case SK.MinusEqualsToken:
-                    const r = mkStmt("variables_change");
+                    const r = mkStmt("variables_change", n);
                     r.inputs = [mkValue("VALUE", negateNumericNode(n.right), numberType)];
                     r.fields = [getField("VAR", getVariableName(n.left as ts.Identifier))];
 
@@ -1440,7 +1616,7 @@ ${output}</xml>`;
         }
 
         function getWhileStatement(n: ts.WhileStatement): StatementNode {
-            const r = mkStmt("device_while");
+            const r = mkStmt("device_while", n);
             r.inputs = [getConditionalInput("COND", n.expression)];
             r.handlers = [{ name: "DO", statement: getStatementBlock(n.statement) }];
             return r;
@@ -1449,7 +1625,7 @@ ${output}</xml>`;
         function getIfStatement(n: ts.IfStatement): StatementNode {
             let flatif = flattenIfStatement(n);
 
-            const r = mkStmt("controls_if");
+            const r = mkStmt("controls_if", n);
             r.mutation = {
                 "elseif": (flatif.ifStatements.length - 1).toString(),
                 "else": flatif.elseStatement ? "1" : "0"
@@ -1458,12 +1634,14 @@ ${output}</xml>`;
             r.handlers = [];
 
             flatif.ifStatements.forEach((stmt, i) => {
+                let statement = getStatementBlock(stmt.thenStatement)
                 r.inputs.push(getConditionalInput("IF" + i, (stmt as ts.IfStatement).expression));
-                r.handlers.push({ name: "DO" + i, statement: getStatementBlock(stmt.thenStatement) });
+                r.handlers.push({ name: "DO" + i, statement });
             });
 
             if (flatif.elseStatement) {
-                r.handlers.push({ name: "ELSE", statement: getStatementBlock(flatif.elseStatement) });
+                let statement = getStatementBlock(flatif.elseStatement);
+                r.handlers.push({ name: "ELSE", statement });
             }
 
             return r;
@@ -1540,13 +1718,13 @@ ${output}</xml>`;
             let r: StatementNode;
 
             if (condition.operatorToken.kind === SK.LessThanToken && !checkForVariableUsages(n.statement)) {
-                r = mkStmt("controls_repeat_ext");
+                r = mkStmt("controls_repeat_ext", n);
                 r.fields = [];
                 r.inputs = [getValue("TIMES", condition.right, wholeNumberType)];
                 r.handlers = [];
             }
             else {
-                r = mkStmt("pxt_controls_for");
+                r = mkStmt("pxt_controls_for", n);
                 r.fields = [];
                 r.inputs = [];
                 r.handlers = [];
@@ -1559,7 +1737,7 @@ ${output}</xml>`;
                         const valueField = getNumericLiteral(decrementedValue + "");
                         r.inputs.push(mkValue("TO", valueField, wholeNumberType));
                     } else {
-                        const ex = mkExpr("math_arithmetic");
+                        const ex = mkExpr("math_arithmetic", n);
                         ex.fields = [getField("OP", "MINUS")];
                         ex.inputs = [
                             getValue("A", unwrappedRightSide, numberType),
@@ -1573,7 +1751,8 @@ ${output}</xml>`;
                 }
             }
 
-            r.handlers.push({ name: "DO", statement: getStatementBlock(n.statement) });
+            const statement = getStatementBlock(n.statement);
+            r.handlers = [{ name: "DO", statement  }];
             return r;
 
             function checkForVariableUsages(node: Node): boolean {
@@ -1589,25 +1768,26 @@ ${output}</xml>`;
             const initializer = n.initializer as ts.VariableDeclarationList;
             const renamed = getVariableName(initializer.declarations[0].name as ts.Identifier);
 
-            const r = mkStmt("pxt_controls_for_of");
+            const r = mkStmt("pxt_controls_for_of", n);
             r.inputs = [getValue("LIST", n.expression), getDraggableVariableBlock("VAR", renamed)];
-            r.handlers = [{ name: "DO", statement: getStatementBlock(n.statement) }];
+            const statement = getStatementBlock(n.statement);
+            r.handlers = [{ name: "DO", statement  }];
 
             return r
         }
 
-        function getVariableSetOrChangeBlock(name: ts.Identifier, value: Node | number, changed = false, overrideName = false): StatementNode {
+        function getVariableSetOrChangeBlock(n: ts.Node, name: ts.Identifier, value: Node | number, changed = false, overrideName = false): StatementNode {
             const renamed = getVariableName(name);
             trackVariableUsage(renamed, ReferenceType.InBlocksOnly);
             // We always do a number shadow even if the variable is not of type number
-            const r = mkStmt(changed ? "variables_change" : "variables_set");
+            const r = mkStmt(changed ? "variables_change" : "variables_set", n.parent || n);
             r.inputs = [getValue("VALUE", value, numberType)];
             r.fields = [getField("VAR", renamed)]
             return r;
         }
 
-        function getArraySetBlock(left: ts.ElementAccessExpression, right: ts.Expression): StatementNode {
-            const r = mkStmt("lists_index_set");
+        function getArraySetBlock(n: ts.BinaryExpression, left: ts.ElementAccessExpression, right: ts.Expression): StatementNode {
+            const r = mkStmt("lists_index_set", n);
             r.inputs = [
                 getValue("LIST", left.expression),
                 getValue("INDEX", left.argumentExpression, numberType),
@@ -1616,15 +1796,15 @@ ${output}</xml>`;
             return r;
         }
 
-        function getPropertySetBlock(left: ts.PropertyAccessExpression, right: ts.Expression, tp: string) {
-            return getPropertyBlock(left, right, tp) as StatementNode
+        function getPropertySetBlock(n: ts.Node, left: ts.PropertyAccessExpression, right: ts.Expression, tp: string) {
+            return getPropertyBlock(n, left, right, tp) as StatementNode
         }
 
-        function getPropertyGetBlock(left: ts.PropertyAccessExpression) {
-            return getPropertyBlock(left, null, "@get@") as ExpressionNode
+        function getPropertyGetBlock(n: ts.Node, left: ts.PropertyAccessExpression) {
+            return getPropertyBlock(n, left, null, "@get@") as ExpressionNode
         }
 
-        function getPropertyBlock(left: ts.PropertyAccessExpression, right: ts.Expression, tp: string): StatementNode | ExpressionNode {
+        function getPropertyBlock(n: ts.Node, left: ts.PropertyAccessExpression, right: ts.Expression, tp: string): StatementNode | ExpressionNode {
             const info: pxtc.CallInfo = pxtc.pxtInfo(left).callInfo
             const sym = env.blocks.apis.byQName[info ? info.qName : ""]
             if (!sym || !sym.attributes.blockCombine) {
@@ -1633,7 +1813,7 @@ ${output}</xml>`;
             }
             const qName = `${sym.namespace}.${sym.retType}.${tp}`;
             const setter = env.blocks.blocks.find(b => b.qName == qName)
-            const r = right ? mkStmt(setter.attributes.blockId) : mkExpr(setter.attributes.blockId)
+            const r = right ? mkStmt(setter.attributes.blockId, n) : mkExpr(setter.attributes.blockId, n)
             const pp = setter.attributes._def.parameters;
 
             let fieldValue = info.qName;
@@ -1655,7 +1835,7 @@ ${output}</xml>`;
 
         function getVariableDeclarationStatement(n: ts.VariableDeclaration): StatementNode {
             if (addVariableDeclaration(n)) {
-                return getVariableSetOrChangeBlock(n.name as ts.Identifier, n.initializer)
+                return getVariableSetOrChangeBlock(n, n.name as ts.Identifier, n.initializer)
             }
             return undefined;
         }
@@ -1668,7 +1848,7 @@ ${output}</xml>`;
                 return undefined;
             }
 
-            return getVariableSetOrChangeBlock(node.operand as ts.Identifier, isPlusPlus ? 1 : -1, true);
+            return getVariableSetOrChangeBlock(node, node.operand as ts.Identifier, isPlusPlus ? 1 : -1, true);
         }
 
         function getFunctionDeclaration(n: ts.FunctionDeclaration): StatementNode {
@@ -1687,7 +1867,7 @@ ${output}</xml>`;
 
             let r: StatementNode;
 
-            r = mkStmt("function_definition");
+            r = mkStmt("function_definition", n);
             r.mutation = {
                 name
             };
@@ -1715,7 +1895,7 @@ ${output}</xml>`;
             const attributes = attrs(info);
 
             if (info.qName == "Math.pow") {
-                const r = mkExpr("math_arithmetic");
+                const r = mkExpr("math_arithmetic", node);
                 r.inputs = [
                     mkValue("A", getOutputBlock(node.arguments[0]), numberType),
                     mkValue("B", getOutputBlock(node.arguments[1]), numberType)
@@ -1729,9 +1909,9 @@ ${output}</xml>`;
                     let r: ExpressionNode;
 
                     if (isRoundingFunction(op)) {
-                        r = mkExpr("math_js_round");
+                        r = mkExpr("math_js_round", node);
                     } else {
-                        r = mkExpr("math_js_op");
+                        r = mkExpr("math_js_op", node);
                         let opType: string;
                         if (isUnaryMathFunction(op)) opType = "unary";
                         else if (isInfixMathFunction(op)) opType = "infix";
@@ -1748,7 +1928,7 @@ ${output}</xml>`;
             }
 
             if (attributes.blockId === pxtc.PAUSE_UNTIL_TYPE) {
-                const r = mkStmt(pxtc.PAUSE_UNTIL_TYPE);
+                const r = mkStmt(pxtc.PAUSE_UNTIL_TYPE, node);
                 const lambda = node.arguments[0] as (ts.FunctionExpression | ts.ArrowFunction);
 
                 let condition: ts.Node;
@@ -1771,7 +1951,7 @@ ${output}</xml>`;
                     const name = getVariableName(node.expression as ts.Identifier);
                     if (env.declaredFunctions[name]) {
                         let r: StatementNode;
-                        r = mkStmt("function_call");
+                        r = mkStmt("function_call", node);
                         if (info.args.length) {
                             r.mutationChildren = [];
                             r.inputs = [];
@@ -1817,10 +1997,8 @@ ${output}</xml>`;
             const api = env.blocks.apis.byQName[info.qName];
             const comp = pxt.blocks.compileInfo(api);
 
-            const r = {
-                kind: asExpression ? "expr" : "statement",
-                type: attributes.blockId
-            } as StatementNode;
+            const r = asExpression ? mkExpr(attributes.blockId, node)
+                : mkStmt(attributes.blockId, node);
 
             const addInput = (v: ValueNode) => (r.inputs || (r.inputs = [])).push(v);
             const addField = (f: FieldNode) => (r.fields || (r.fields = [])).push(f);
@@ -1896,6 +2074,7 @@ ${output}</xml>`;
                 switch (e.kind) {
                     case SK.FunctionExpression:
                     case SK.ArrowFunction:
+                        let expBody = (e as ArrowFunction | FunctionExpression).body;
                         const m = getDestructuringMutation(e as ArrowFunction);
                         let mustPopLocalScope = false;
                         if (m) {
@@ -1950,7 +2129,9 @@ ${output}</xml>`;
                                 }
                             }
                         }
-                        (r.handlers || (r.handlers = [])).push({ name: "HANDLER", statement: getStatementBlock(e) });
+                        const statement = getStatementBlock(e);
+                        (r.handlers || (r.handlers = [])).push({ name: "HANDLER", statement });
+
                         if (mustPopLocalScope) {
                             env.localReporters.pop();
                         }
@@ -2127,10 +2308,12 @@ ${output}</xml>`;
 
             if (blockStatements.length) {
                 // wrap statement in "on start" if top level
-                const stmt = getStatementBlock(blockStatements.shift(), blockStatements, parent, false, topLevel);
+                const stmtNode = blockStatements.shift();
+                const stmt = getStatementBlock(stmtNode, blockStatements, parent, false, topLevel);
                 if (emitOnStart) {
                     // Preserve any variable edeclarations that were never used
                     let current = stmt;
+                    let currentNode: ts.Node = stmtNode;
                     autoDeclarations.forEach(([name, node]) => {
                         if (varUsages[name] === ReferenceType.InBlocksOnly) {
                             return;
@@ -2144,14 +2327,15 @@ ${output}</xml>`;
                             v = getTypeScriptStatementBlock(node, "let ");
                         }
                         else {
-                            v = getVariableSetOrChangeBlock((node as ts.VariableDeclaration).name as ts.Identifier, (node as ts.VariableDeclaration).initializer, false, true);
+                            v = getVariableSetOrChangeBlock(stmtNode, (node as ts.VariableDeclaration).name as ts.Identifier, (node as ts.VariableDeclaration).initializer, false, true);
                         }
                         v.next = current;
                         current = v;
+                        currentNode = node;
                     });
 
                     if (current) {
-                        const r = mkStmt(ts.pxtc.ON_START_TYPE);
+                        const r = mkStmt(ts.pxtc.ON_START_TYPE, currentNode);
                         r.handlers = [{
                             name: "HANDLER",
                             statement: current
@@ -2159,22 +2343,22 @@ ${output}</xml>`;
                         return r;
                     }
                     else {
-                        maybeEmitEmptyOnStart();
+                        maybeEmitEmptyOnStart(stmt);
                     }
                 }
                 return stmt;
             }
             else if (emitOnStart) {
-                maybeEmitEmptyOnStart();
+                maybeEmitEmptyOnStart(undefined);
             }
 
             return undefined;
         }
 
-        function maybeEmitEmptyOnStart() {
+        function maybeEmitEmptyOnStart(node: StatementNode) {
             if (options.alwaysEmitOnStart) {
-                countBlock();
-                write(`<block type="${ts.pxtc.ON_START_TYPE}"></block>`);
+                openBlockTag(ts.pxtc.ON_START_TYPE, node);
+                closeBlockTag();
             }
         }
 
@@ -2191,75 +2375,6 @@ ${output}</xml>`;
                 }
                 trackVariableUsagesInText(n);
             })
-        }
-
-        /**
-         * Takes a series of comment ranges and converts them into string suitable for a
-         * comment block in blockly. All comments above a statement will be included,
-         * regardless of single vs multi line and whitespace. Paragraphs are delineated
-         * by empty lines between comments (a commented empty line, not an empty line
-         * between two separate comment blocks)
-         */
-        function getCommentText(commentRanges: ts.CommentRange[], node: Node, workspaceRefs?: string[]) {
-            let text = ""
-            let currentLine = ""
-
-            const isTopLevel = isTopLevelNode(node);
-
-            for (const commentRange of commentRanges) {
-                let commentText = fileText.substr(commentRange.pos, commentRange.end - commentRange.pos)
-                if (commentText) {
-                    // Strip windows line endings because they break the regex we use to extract content
-                    commentText = commentText.replace(/\r\n/g, "\n");
-                }
-                if (commentRange.kind === SyntaxKind.SingleLineCommentTrivia) {
-                    appendMatch(commentText, 1, 3, singleLineCommentRegex)
-                }
-                else if (commentRange.kind === SyntaxKind.MultiLineCommentTrivia && isTopLevel) {
-                    const lines = commentText.split("\n")
-                    for (let i = 0; i < lines.length; i++) {
-                        appendMatch(lines[i], i, lines.length, multiLineCommentRegex);
-                    }
-                    if (currentLine) text += currentLine
-                    const ref = getCommentRef();
-                    if (workspaceRefs) {
-                        workspaceRefs.push(ref);
-                    }
-                    workspaceComments.push({ text, refId: ref });
-                    text = '';
-                    currentLine = '';
-                }
-                else {
-                    const lines = commentText.split("\n")
-                    for (let i = 0; i < lines.length; i++) {
-                        appendMatch(lines[i], i, lines.length, multiLineCommentRegex)
-                    }
-                }
-            }
-
-            text += currentLine
-
-            return text.trim()
-
-            function appendMatch(line: string, lineno: number, lineslen: number, regex: RegExp) {
-                const match = regex.exec(line)
-                if (match) {
-                    const matched = match[1].trim()
-
-                    if (matched === ON_START_COMMENT || matched === HANDLER_COMMENT) {
-                        return;
-                    }
-
-                    if (matched) {
-                        currentLine += currentLine ? " " + matched : matched
-                    } else {
-                        if (lineno && lineno < lineslen - 1) {
-                            text += currentLine + "\n"
-                            currentLine = ""
-                        }
-                    }
-                }
-            }
         }
 
         function trackAutoDeclaration(n: ts.VariableDeclaration) {
@@ -3500,5 +3615,176 @@ ${output}</xml>`;
     function isCommented(node: ts.Node) {
         const ranges = ts.getLeadingCommentRangesOfNode(node, node.getSourceFile());
         return !!(ranges && ranges.length)
+    }
+
+    function getCommentsFromRanges(file: ts.SourceFile, commentRanges: ts.CommentRange[], isTrailingComment = false) {
+        const res: Comment[] = [];
+        const fileText = file.getFullText();
+
+        if (commentRanges && commentRanges.length) {
+            for (const commentRange of commentRanges) {
+
+                const endLine = ts.getLineOfLocalPosition(file, commentRange.end);
+                const nextLineStart = ts.getStartPositionOfLine(endLine + 1, file) || fileText.length;
+                const nextLineEnd = ts.getStartPositionOfLine(endLine + 2, file) || fileText.length;
+
+                const followedByEmptyLine = !isTrailingComment && !fileText.substr(
+                    nextLineStart,
+                    nextLineEnd - nextLineStart
+                ).trim();
+
+                let commentText = fileText.substr(commentRange.pos, commentRange.end - commentRange.pos)
+                if (commentText) {
+                    // Strip windows line endings because they break the regex we use to extract content
+                    commentText = commentText.replace(/\r\n/g, "\n");
+                }
+                if (commentRange.kind === SyntaxKind.SingleLineCommentTrivia) {
+                    const match = singleLineCommentRegex.exec(commentText);
+
+                    if (match) {
+                        res.push({
+                            kind: CommentKind.SingleLine,
+                            text: match[1],
+                            start: commentRange.pos,
+                            end: commentRange.end,
+                            hasTrailingNewline: !!commentRange.hasTrailingNewLine,
+                            followedByEmptyLine,
+                            isTrailingComment
+                        });
+                    }
+                    else {
+                        res.push({
+                            kind: CommentKind.SingleLine,
+                            text: "",
+                            start: commentRange.pos,
+                            end: commentRange.end,
+                            hasTrailingNewline: !!commentRange.hasTrailingNewLine,
+                            followedByEmptyLine,
+                            isTrailingComment
+                        });
+                    }
+                }
+                else {
+                    const lines = commentText.split("\n").map(line => {
+                        const match = multiLineCommentRegex.exec(line);
+                        return match ? match[1] : "";
+                    });
+                    res.push({
+                        kind: CommentKind.MultiLine,
+                        lines,
+                        start: commentRange.pos,
+                        end: commentRange.end,
+                        hasTrailingNewline: !!commentRange.hasTrailingNewLine,
+                        followedByEmptyLine,
+                        isTrailingComment
+                    });
+                }
+            }
+        }
+
+        return res;
+    }
+
+    function formatCommentsForBlocks(comments: Comment[]) {
+        let out = "";
+
+        for (const comment of comments) {
+            if (comment.kind === CommentKind.SingleLine) {
+                if (comment.text === ON_START_COMMENT || comment.text === HANDLER_COMMENT) {
+                    continue;
+                }
+                else {
+                    out += comment.text.trim() + "\n";
+                }
+            }
+            else {
+                for (const line of comment.lines) {
+                    out += line.trim() + "\n";
+                }
+            }
+
+            if (comment.hasTrailingNewline) {
+                out += "\n";
+            }
+        }
+
+        return out.trim();
+    }
+
+    function isTopLevelComment(n: Node): boolean {
+        const [parent,] = getParent(n);
+        if (!parent || parent.kind == SK.SourceFile) return true;
+        // Expression statement
+        if (parent.kind == SK.ExpressionStatement) return isTopLevelComment(parent);
+        // Variable statement
+        if (parent.kind == SK.VariableDeclarationList) return isTopLevelComment(parent.parent);
+        return false;
+    }
+
+    export function getLeadingComments(node: Node, file: ts.SourceFile, commentRanges?: ts.CommentRange[]): Comment[] {
+        return getCommentsFromRanges(file, commentRanges || ts.getLeadingCommentRangesOfNode(node, file));
+    }
+
+    export function getTrailingComments(node: Node, file: ts.SourceFile): Comment[] {
+        return getCommentsFromRanges(file, ts.getTrailingCommentRanges(file.getFullText(), node.end));
+    }
+
+    export function getCommentsForStatement(commented: Node, commentMap: Comment[]) {
+        let comments: Comment[] = [];
+        let current: Comment;
+        for (let i = 0; i < commentMap.length; i++) {
+            current = commentMap[i];
+            if (!current.owner && current.start >= commented.pos && current.end <= commented.end) {
+                current.owner = commented;
+                comments.push(current);
+            }
+
+            if (current.start > commented.end) break;
+        }
+
+        return comments;
+    }
+
+    export function buildCommentMap(file: SourceFile) {
+        const fileText = file.getFullText();
+        const scanner = ts.createScanner(file.languageVersion, false, file.languageVariant, fileText, undefined, file.getFullStart());
+        let res: Comment[] = [];
+
+        let leading: CommentRange[];
+        let trailing: CommentRange[];
+
+        while (scanner.getTextPos() < file.end) {
+            const val = scanner.scan();
+            if (val === SK.SingleLineCommentTrivia || val === SK.MultiLineCommentTrivia) {
+                leading = ts.getLeadingCommentRanges(fileText, scanner.getTokenPos()) || [];
+                trailing = ts.getTrailingCommentRanges(fileText, scanner.getTokenPos()) || [];
+
+                // Filter out duplicates
+                trailing = trailing.filter(range => !leading.some(other => other.pos === range.pos));
+
+                res.push(...getCommentsFromRanges(file, leading, false));
+                res.push(...getCommentsFromRanges(file, trailing, true));
+
+                for (const range of res) {
+                    if (range.end > scanner.getTextPos()) {
+                        scanner.setTextPos(range.end)
+                    }
+                }
+            }
+        }
+
+        res.sort((a, b) => a.start - b.start);
+
+        return res;
+    }
+
+    function markCommentsInRange(node: Node, commentMap: Comment[]) {
+        let current: Comment;
+        for (let i = 0; i < commentMap.length; i++) {
+            current = commentMap[i];
+            if (!current.owner && current.start >= node.pos && current.end <= node.end) {
+                current.owner = node;
+            }
+        }
     }
 }

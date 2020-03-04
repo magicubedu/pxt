@@ -461,7 +461,7 @@ export function showCreateGithubRepoDialogAsync(name?: string) {
         header: lf("Create GitHub repository"),
         jsxd: () => {
             const nameErr = repoNameError();
-            return <div className="ui form">
+            return <div className={`ui form`}>
                 <p>
                     {lf("Host your code on GitHub and work together with friends.")}
                     {sui.helpIconLink("/github", lf("Learn more about GitHub"))}
@@ -473,7 +473,7 @@ export function showCreateGithubRepoDialogAsync(name?: string) {
                     <sui.Input type="text" value={repoDescription} onChange={onDescriptionChanged} label={lf("Repository description")} placeholder={lf("MakeCode extension for my gadget")} class="fluid" />
                 </div>
                 <div className="ui field">
-                    <select className="ui dropdown" onChange={onPublicChanged}>
+                    <select className={`ui dropdown`} onChange={onPublicChanged}>
                         <option aria-selected={repoPublic} value="true">{lf("Public repository, anyone can look at your code.")}</option>
                         <option aria-selected={!repoPublic} value="false">{lf("Private repository, your code is only visible to you.")}</option>
                     </select>
@@ -521,9 +521,7 @@ export function showImportGithubDialogAsync() {
     return pxt.github.listUserReposAsync()
         .finally(() => core.hideLoading("githublist"))
         .then(repos => {
-            let isPXT = (r: pxt.github.GitRepo) => /pxt|makecode/.test(r.name)
-            return repos.filter(isPXT).concat(repos.filter(r => !isPXT(r)))
-                .map(r => ({
+            return repos.map(r => ({
                     name: r.fullName,
                     description: r.description,
                     updatedAt: r.updatedAt,
@@ -536,6 +534,8 @@ export function showImportGithubDialogAsync() {
         .then(repos => core.confirmAsync({
             header: lf("Clone or create your own GitHub repo"),
             hideAgree: true,
+            hideCancel: true,
+            hasCloseIcon: true,
             /* tslint:disable:react-a11y-anchors */
             jsx: <div className="ui form">
                 <div className="ui relaxed divided list" role="menu">

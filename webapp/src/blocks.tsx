@@ -41,7 +41,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         let map: pxt.Map<number> = {};
         if (!breakpoints || !this.compilationResult) return;
         breakpoints.forEach(breakpoint => {
-            let blockId = pxt.blocks.findBlockId(this.compilationResult.sourceMap, { start: breakpoint.line, length: breakpoint.endLine - breakpoint.line });
+            let blockId = pxt.blocks.findBlockIdByLine(this.compilationResult.sourceMap, { start: breakpoint.line, length: breakpoint.endLine - breakpoint.line });
             if (blockId) map[blockId] = breakpoint.id;
         });
         this.breakpointsByBlock = map;
@@ -111,11 +111,6 @@ export class Editor extends toolboxeditor.ToolboxEditor {
             core.errorNotification(lf("Sorry, we were not able to convert this program."))
             return Promise.resolve(undefined);
         }
-    }
-
-    updateBlocksInfo(bi: pxtc.BlocksInfo) {
-        this.blockInfo = bi;
-        this.refreshToolbox();
     }
 
     domUpdate() {
@@ -254,17 +249,21 @@ export class Editor extends toolboxeditor.ToolboxEditor {
 
             needsLayout = needsLayout || (tpX == 10 && tpY == 10);
         });
+        let blockPositions: { left: number, top: number }[] = [];
         (this.editor.getTopBlocks(false) as Blockly.BlockSvg[]).forEach(b => {
-            const tpX = b.getBoundingRectangle().left;
-            const tpY = b.getBoundingRectangle().top;
-            if (minX === undefined || tpX < minX) {
-                minX = tpX;
+            const bounds = b.getBoundingRectangle()
+            if (minX === undefined || bounds.left < minX) {
+                minX = bounds.left;
             }
-            if (minY === undefined || tpY < minY) {
-                minY = tpY;
+            if (minY === undefined || bounds.top < minY) {
+                minY = bounds.top;
             }
 
-            needsLayout = needsLayout || (b.type != ts.pxtc.ON_START_TYPE && tpX == 10 && tpY == 10);
+            const isOverlapping = !!blockPositions.find(b => b.left === bounds.left && b.top === bounds.top)
+
+            needsLayout = needsLayout || isOverlapping;
+
+            blockPositions.push(bounds)
         });
 
         if (needsLayout && !flyoutOnly) {
@@ -825,7 +824,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
             b.setWarningText(null);
             b.setHighlightWarning(false);
         });
-        let tsfile = file.epkg.files[file.getVirtualFileName(pxt.JAVASCRIPT_PROJECT_NAME)];
+        let tsfile = file && file.epkg && file.epkg.files[file.getVirtualFileName(pxt.JAVASCRIPT_PROJECT_NAME)];
         if (!tsfile || !tsfile.diagnostics) return;
 
         // only show errors
@@ -833,7 +832,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         let sourceMap = this.compilationResult.sourceMap;
 
         diags.filter(diag => diag.category == ts.pxtc.DiagnosticCategory.Error).forEach(diag => {
-            let bid = pxt.blocks.findBlockId(sourceMap, { start: diag.line, length: 0 });
+            let bid = pxt.blocks.findBlockIdByLine(sourceMap, { start: diag.line, length: 0 });
             if (bid) {
                 let b = this.editor.getBlockById(bid) as Blockly.BlockSvg;
                 if (b) {
@@ -860,7 +859,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
             return false;
         this.updateDebuggerVariables(brk);
         if (stmt) {
-            let bid = pxt.blocks.findBlockId(this.compilationResult.sourceMap, { start: stmt.line, length: stmt.endLine - stmt.line });
+            let bid = pxt.blocks.findBlockIdByLine(this.compilationResult.sourceMap, { start: stmt.line, length: stmt.endLine - stmt.line });
             if (bid) {
                 this.editor.highlightBlock(bid);
                 if (brk) {
@@ -946,18 +945,19 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     private getDefaultOptions() {
         if (this.blocklyOptionsCache) return this.blocklyOptionsCache;
         const readOnly = pxt.shell.isReadOnly();
+        const theme = pxt.appTarget.appTheme;
         const blocklyOptions: Blockly.WorkspaceOptions = {
             scrollbars: true,
             media: pxt.webConfig.commitCdnUrl + "blockly/media/",
             sound: true,
             trashcan: false,
-            collapse: false,
+            collapse: !!theme.blocksCollapsing,
             comments: true,
             disable: false,
             readOnly: readOnly,
             toolboxOptions: {
-                colour: pxt.appTarget.appTheme.coloredToolbox,
-                inverted: pxt.appTarget.appTheme.invertedToolbox
+                colour: theme.coloredToolbox,
+                inverted: theme.invertedToolbox
             },
             move: {
                 wheel: true
@@ -1096,7 +1096,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     ////////////         Toolbox methods          /////////////
     ///////////////////////////////////////////////////////////
 
-    protected clearCaches() {
+    clearCaches() {
         super.clearCaches();
         this.clearFlyoutCaches();
         snippets.clearBuiltinBlockCache();
