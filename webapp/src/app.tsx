@@ -1362,7 +1362,7 @@ export class ProjectView
 
         const importer = this.hexFileImporters.filter(fi => fi.canImport(data))[0];
         if (importer) {
-            pxt.tickEvent("import",{ id : importer.id });
+            pxt.tickEvent("import", { id: importer.id });
             core.hideDialog();
             core.showLoading("importhex", lf("loading project..."))
             pxt.editor.initEditorExtensionsAsync()
@@ -2791,11 +2791,25 @@ export class ProjectView
                     return pxt.github.downloadPackageAsync(ghid.fullName, config);
                 })
                 .then(gh => {
-                    const pxtJson = JSON.parse(gh.files["pxt.json"]) as pxt.PackageConfig;
+                    const files = gh.files;
+                    const pxtJson = JSON.parse(files["pxt.json"]) as pxt.PackageConfig;
                     dependencies = pxtJson.dependencies || {};
                     title = pxtJson.name || lf("Untitled");
                     autoChooseBoard = false;
-                    return gh.files["README.md"];
+                    const mfn = (ghid.fileName || "README") + ".md";
+
+                    let md: string = undefined;
+                    const [initialLang, baseLang] = pxt.Util.normalizeLanguageCode(pxt.Util.userLanguage());
+                    if (initialLang && baseLang) {
+                        //We need to first search base lang and then intial Lang
+                        //Example: normalizeLanguageCode en-IN  will return ["en-IN", "en"] and nb will be returned as ["nb"]                        
+                        md = files[`_locales/${initialLang}/${mfn}`] || files[`_locales/${baseLang}/${mfn}`];
+                    } else {
+                        md = files[`_locales/${initialLang}/${mfn}`];
+                    }
+                    md = md || files[mfn];
+                    return md;
+
                 }).catch((e) => {
                     core.errorNotification(tutorialErrorMessage);
                     core.handleNetworkError(e);
@@ -2918,7 +2932,7 @@ export class ProjectView
             tutorialOptions: tutorialOptions
         });
 
-        setTimeout(() => { this.setState({pokeUserComponent: null}); }, 3000);
+        setTimeout(() => { this.setState({ pokeUserComponent: null }); }, 3000);
     }
 
     ///////////////////////////////////////////////////////////
@@ -3088,7 +3102,7 @@ export class ProjectView
             </div>
         }
         const isRTL = pxt.Util.isUserLanguageRtl();
-        const showRightChevron = (this.state.collapseEditorTools || isRTL ) && !(this.state.collapseEditorTools && isRTL); // Collapsed XOR RTL
+        const showRightChevron = (this.state.collapseEditorTools || isRTL) && !(this.state.collapseEditorTools && isRTL); // Collapsed XOR RTL
         return (
             <div id='root' className={rootClasses}>
                 {greenScreen ? <greenscreen.WebCam close={this.toggleGreenScreen} /> : undefined}
@@ -3610,9 +3624,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         lang.setCookieLang(useLang);
                         lang.setInitialLang(useLang);
                     } else {
-                        pxt.tickEvent("unavailablelocale", {lang : useLang,  force : (force ? "true" : "false")});
+                        pxt.tickEvent("unavailablelocale", { lang: useLang, force: (force ? "true" : "false") });
                     }
-                    pxt.tickEvent("locale", {lang : pxt.Util.userLanguage(), live : (live ? "true" : "false")});
+                    pxt.tickEvent("locale", { lang: pxt.Util.userLanguage(), live: (live ? "true" : "false") });
                     // Download sim translations and save them in the sim
                     // don't wait!
                     ts.pxtc.Util.downloadTranslationsAsync(
