@@ -1459,17 +1459,17 @@ namespace pxt.blocks {
                     }
                 };
                 menuOptions.push(deleteOption);
-
-                const formatCodeOption = {
-                    text: lf("Format Code"),
-                    enabled: true,
-                    callback: () => {
-                        pxt.tickEvent("blocks.context.format", undefined, { interactiveConsent: true });
-                        pxt.blocks.layout.flow(this, { useViewWidth: true });
-                    }
-                }
-                menuOptions.push(formatCodeOption);
             }
+
+            const formatCodeOption = {
+                text: lf("Format Code"),
+                enabled: true,
+                callback: () => {
+                    pxt.tickEvent("blocks.context.format", undefined, { interactiveConsent: true });
+                    pxt.blocks.layout.flow(this, { useViewWidth: true });
+                }
+            }
+            menuOptions.push(formatCodeOption);
 
             if (pxt.blocks.layout.screenshotEnabled()) {
                 const screenshotOption = {
@@ -1506,6 +1506,19 @@ namespace pxt.blocks {
                             element.removeAttribute("h");
                             element.removeAttribute("w");
                         });
+                        const children = Array.from(xmlRoot.children).sort((a, b) => {
+                            if (a.localName === "block" && a.localName === b.localName) {
+                                const aType = a.getAttribute("type");
+                                const bType = b.getAttribute("type");
+                                if (aType !== bType) {
+                                    return aType === "function_definition" ? -1 : bType === "function_definition" ? 1 : 0;
+                                }
+                            }
+                            return 0;
+                        });
+                        for (const c of children) {
+                            xmlRoot.appendChild(c);
+                        }
                         blockCopyHandler({
                             blocks: Blockly.Xml.domToText(xmlRoot)
                         });
