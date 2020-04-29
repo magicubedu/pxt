@@ -18,6 +18,8 @@ let bmpMode = false
 const execAsync: (cmd: string, options?: { cwd?: string }) => Promise<Buffer | string> = Promise.promisify(child_process.exec)
 
 function getBMPSerialPortsAsync(): Promise<string[]> {
+    if (process.env["PXT_IGNORE_BMP"])
+        return Promise.resolve([])
     if (process.platform == "win32") {
         return execAsync("wmic PATH Win32_SerialPort get DeviceID, PNPDeviceID")
             .then((buf: Buffer) => {
@@ -313,6 +315,27 @@ async function flashAsync() {
         cmd: oargs[0],
         args: oargs.slice(1)
     })
+}
+
+async function resetAsync(bootMode: boolean) {
+    let bi = getBootInfo()
+    if (gdbServer) {
+        if (bootMode && bi.addr)
+            await gdbServer.write32Async(bi.addr, bi.boot)
+        await gdbServer.sendCmdAsync("R00", null)
+    } else {
+        let cmd = "init\nhalt\n"
+        if (bootMode && bi.addr) {
+            cmd += `set M(0) ${bi.boot}\narray2mem M 32 ${bi.addr} 1\n`
+        }
+        cmd += `reset run\nshutdown`
+        let toolPaths = getOpenOcdPath(cmd, true)
+        let oargs = toolPaths.args
+        await nodeutil.spawnAsync({
+            cmd: oargs[0],
+            args: oargs.slice(1)
+        })
+    }
 }
 
 async function getMemoryAsync(addr: number, bytes: number): Promise<Buffer> {
@@ -927,14 +950,10 @@ export async function hwAsync(cmds: string[]) {
     switch (cmds[0]) {
         case "rst":
         case "reset":
-            await gdbServer.sendCmdAsync("R00", null)
+            await resetAsync(false)
             break
         case "boot":
-            let bi = getBootInfo()
-            if (bi.addr) {
-                await gdbServer.write32Async(bi.addr, bi.boot)
-            }
-            await gdbServer.sendCmdAsync("R00", null)
+            await resetAsync(true)
             break
         case "log":
         case "dmesg":
@@ -975,6 +994,7 @@ export async function startAsync(gdbArgs: string[]) {
     let trg = ""
     let monReset = "monitor reset"
     let monResetHalt = "monitor reset halt"
+    const pyOCD = !!process.env["PXT_PYOCD"]
 
     if (bmpPort) {
         bmpMode = true
@@ -997,10 +1017,16 @@ export async function startAsync(gdbArgs: string[]) {
 
     let toolPaths = getOpenOcdPath()
 
+
     if (!bmpMode) {
-        let oargs = toolPaths.args
-        trg = "target remote | " + oargs.map(s => `"${s.replace(/\\/g, "/")}"`).join(" ")
-        pxt.log("starting openocd: " + oargs.join(" "))
+        if (pyOCD) {
+            trg = "target extended-remote localhost:3333"
+            pxt.log("will connect to pyocd at localhost:3333")
+        } else {
+            let oargs = toolPaths.args
+            trg = "target remote | " + oargs.map(s => `"${s.replace(/\\/g, "/")}"`).join(" ")
+            pxt.log("starting openocd: " + oargs.join(" "))
+        }
     }
 
     let binfo = getBootInfo()

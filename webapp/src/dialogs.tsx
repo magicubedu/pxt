@@ -352,10 +352,19 @@ export function showPRDialogAsync(repo: string, prURL: string): Promise<void> {
 export function showImportUrlDialogAsync() {
     let input: HTMLInputElement;
     const shareUrl = pxt.appTarget.appTheme.shareUrl || "https://makecode.com/";
+
     return core.confirmAsync({
         header: lf("Open project URL"),
+        hasCloseIcon: true,
+        hideCancel: true,
         onLoaded: (el) => {
-            input = el.querySelectorAll('input')[0] as HTMLInputElement;
+            input = el.querySelector('input');
+            input.onkeydown = ev => {
+                if (ev.key === "Enter") {
+                    const confirm = el.querySelector('.button.approve') as HTMLButtonElement;
+                    confirm?.click();
+                }
+            }
         },
         jsx: <div className="ui form">
             <div className="ui icon violet message">
@@ -380,13 +389,9 @@ export function showImportUrlDialogAsync() {
         if (res) {
             pxt.tickEvent("app.open.url");
             const url = input.value;
-            let projectId: string;
-            if (/^(github:|https:\/\/github\.com\/)/.test(url)) {
-                projectId = pxt.github.normalizeRepoId(url)
-            } else {
+            let projectId = pxt.github.normalizeRepoId(url);
+            if (!projectId)
                 projectId = pxt.Cloud.parseScriptId(url);
-            }
-
             if (!projectId) {
                 return Promise.reject(new Error(lf("Sorry, the project url looks invalid.")));
             }
@@ -467,7 +472,7 @@ export function showCreateGithubRepoDialogAsync(name?: string) {
                     {sui.helpIconLink("/github", lf("Learn more about GitHub"))}
                 </p>
                 <div className="ui field">
-                    <sui.Input type="url" value={repoName} onChange={onNameChanged} label={lf("Repository name")} placeholder={`pxt-my-gadget...`} class="fluid" error={nameErr} />
+                    <sui.Input type="url" autoFocus value={repoName} onChange={onNameChanged} label={lf("Repository name")} placeholder={`pxt-my-gadget...`} class="fluid" error={nameErr} />
                 </div>
                 <div className="ui field">
                     <sui.Input type="text" value={repoDescription} onChange={onDescriptionChanged} label={lf("Repository description")} placeholder={lf("MakeCode extension for my gadget")} class="fluid" />
@@ -517,7 +522,7 @@ export function showImportGithubDialogAsync() {
         res = "NEW"
         core.hideDialog()
     }
-    core.showLoading("githublist", lf("Getting repo list..."))
+    core.showLoading("githublist", lf("searching GitHub repositories..."))
     return pxt.github.listUserReposAsync()
         .finally(() => core.hideLoading("githublist"))
         .then(repos => {
@@ -593,6 +598,8 @@ export function showImportFileDialogAsync(options?: pxt.editor.ImportFileOptions
     }
     return core.confirmAsync({
         header: lf("Open {0} file", exts.join(lf(" or "))),
+        hasCloseIcon: true,
+        hideCancel: true,
         onLoaded: (el) => {
             input = el.querySelectorAll('input')[0] as HTMLInputElement;
         },
@@ -615,7 +622,7 @@ export function showImportFileDialogAsync(options?: pxt.editor.ImportFileOptions
 
 export function showReportAbuseAsync(pubId?: string) {
     // send users to github directly for unwanted repoes
-    const ghid = /^https:\/\/github\.com\//i.test(pubId) && pxt.github.parseRepoUrl(pubId);
+    const ghid = pxt.github.parseRepoId(pubId);
     if (ghid) {
         pxt.tickEvent("reportabuse.github");
         window.open("https://github.com/contact/report-content", "_blank");

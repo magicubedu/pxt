@@ -1,3 +1,4 @@
+/// <reference path='../../localtypings/dompurify.d.ts' />
 
 import * as React from "react";
 import * as data from "./data";
@@ -303,7 +304,7 @@ export class MarkedContent extends data.Component<MarkedContentProps, MarkedCont
 
     private renderOthers(content: HTMLElement) {
         // remove package blocks
-        pxt.Util.toArray(content.querySelectorAll(`.lang-package,.lang-config`))
+        pxt.Util.toArray(content.querySelectorAll(`.lang-package,.lang-config,.lang-apis`))
             .forEach((langBlock: HTMLElement) => {
                 langBlock.parentNode.removeChild(langBlock);
             });
@@ -320,18 +321,32 @@ export class MarkedContent extends data.Component<MarkedContentProps, MarkedCont
         let renderer = new marked.Renderer()
         pxt.docs.setupRenderer(renderer);
 
+        // always popout external links
+        const linkRenderer = renderer.link;
+        renderer.link = function (href: string, title: string, text: string) {
+            const relative = /^[\/#]/.test(href);
+            const target = !relative ? '_blank' : '';
+            const html = linkRenderer.call(renderer, href, title, text);
+            return html.replace(/^<a /, `<a ${target ? `target="${target}"` : ''} rel="nofollow noopener" `);
+        };
+
         // Set markdown options
         marked.setOptions({
             renderer: renderer,
-            sanitize: true
+            sanitize: true,
+            sanitizer: pxt.docs.requireDOMSanitizer()
         })
+
+        // preemptively remove script tags, although they'll be escaped anyway
+        // prevents ugly <script ...> rendering in docs
+        markdown = markdown.replace(/<\s*script[^>]*>.*<\/\s*script\s*>/g, '');
 
         // Render the markdown and add it to the content div
         /* tslint:disable:no-inner-html (marked content is already sanitized) */
         content.innerHTML = marked(markdown);
         /* tslint:enable:no-inner-html */
 
-        // 
+        //
 
         // We'll go through a series of adjustments here, rendering inline blocks, blocks and snippets as needed
         this.renderInlineBlocks(content);

@@ -124,7 +124,7 @@ export class EditorToolbar extends data.Component<ISettingsProps, {}> {
                 onChangeValue={this.saveProjectName}
                 disabled={projectNameReadOnly}
                 readOnly={projectNameReadOnly}
-                />)
+            />)
         }
 
         if (showSave) {
@@ -147,23 +147,43 @@ export class EditorToolbar extends data.Component<ISettingsProps, {}> {
         this.compile();
     }
 
+    protected onPairClick = () => {
+        pxt.tickEvent("editortools.pair", undefined, { interactiveConsent: true });
+        this.props.parent.pairAsync();
+    }
+
+    protected onDisconnectClick = () => {
+        this.props.parent.disconnectAsync();
+    }
+
     protected getCompileButton(view: View, collapsed?: boolean): JSX.Element[] {
         const targetTheme = pxt.appTarget.appTheme;
         const { compiling, isSaving } = this.props.parent.state;
-        const compileLoading = !!compiling;
         const compileTooltip = lf("Download your code to the {0}", targetTheme.boardName);
-        const downloadIcon = targetTheme.downloadIcon || "download";
         const downloadText = targetTheme.useUploadMessage ? lf("Upload") : lf("Download");
         const boards = pxt.appTarget.simulator && !!pxt.appTarget.simulator.dynamicBoardDefinition;
+        const webUSBSupported = pxt.usb.isEnabled && pxt.appTarget?.compile?.webUSB;
+        const packetioConnected = !!this.getData("packetio:connected");
+        const packetioConnecting = !!this.getData("packetio:connecting");
+        const packetioIcon = this.getData("packetio:icon") as string;
+        const downloadIcon = (!!packetioConnecting && "ping " + packetioIcon)
+            || (!!packetioConnected && packetioIcon)
+            || targetTheme.downloadIcon || "download";
+        const hasMenu = boards || webUSBSupported;
 
-        let downloadButtonClasses = boards ? "left attached " : "";
+        let downloadButtonClasses = hasMenu ? "left attached " : "";
+        const downloadButtonIcon = "ellipsis";
         let hwIconClasses = "";
         let displayRight = false;
         if (isSaving) {
             downloadButtonClasses += "disabled ";
-        } else if (compileLoading) {
+        } else if (compiling) {
             downloadButtonClasses += "loading disabled ";
         }
+        if (packetioConnected)
+            downloadButtonClasses += "connected ";
+        else if (packetioConnecting)
+            downloadButtonClasses += "connecting ";
         switch (view) {
             case View.Mobile:
                 downloadButtonClasses += "download-button-full";
@@ -183,16 +203,21 @@ export class EditorToolbar extends data.Component<ISettingsProps, {}> {
         let el = [];
         el.push(<EditorToolbarButton key="downloadbutton" role="menuitem" icon={downloadIcon} className={`primary download-button ${downloadButtonClasses}`} text={view != View.Mobile ? downloadText : undefined} title={compileTooltip} onButtonClick={this.compile} view='computer' />)
 
-        const deviceName = pxt.hwName || lf("device");
-        const tooltip = pxt.hwName || lf("Click to select hardware")
+        const deviceName = pxt.hwName || pxt.appTarget.appTheme.boardNickname || lf("device");
+        const tooltip = pxt.hwName
+            || (packetioConnected && lf("Connected to {0}", deviceName))
+            || (packetioConnecting && lf("Connecting..."))
+            || (boards ? lf("Click to select hardware") : lf("Click for one-click downloads."));
 
         const hardwareMenuText = view == View.Mobile ? lf("Hardware") : lf("Choose hardware");
         const downloadMenuText = view == View.Mobile ? (pxt.hwName || lf("Download")) : lf("Download to {0}", deviceName);
 
-        if (boards) {
+        if (hasMenu) {
             el.push(
-                <sui.DropdownMenu key="downloadmenu" role="menuitem" icon={`ellipsis horizontal ${hwIconClasses}`} title={lf("Download options")} className={`${hwIconClasses} right attached editortools-btn hw-button button`} dataTooltip={tooltip} displayAbove={true} displayRight={displayRight}>
-                    <sui.Item role="menuitem" icon="microchip" text={hardwareMenuText} tabIndex={-1} onClick={this.onHwItemClick} />
+                <sui.DropdownMenu key="downloadmenu" role="menuitem" icon={`${downloadButtonIcon} horizontal ${hwIconClasses}`} title={lf("Download options")} className={`${hwIconClasses} right attached editortools-btn hw-button button`} dataTooltip={tooltip} displayAbove={true} displayRight={displayRight}>
+                    {webUSBSupported && !packetioConnected && <sui.Item role="menuitem" icon="usb" text={lf("Pair device")} tabIndex={-1} onClick={this.onPairClick} />}
+                    {webUSBSupported && (packetioConnecting || packetioConnected) && <sui.Item role="menuitem" icon="usb" text={lf("Disconnect")} tabIndex={-1} onClick={this.onDisconnectClick} />}
+                    {boards && <sui.Item role="menuitem" icon="microchip" text={hardwareMenuText} tabIndex={-1} onClick={this.onHwItemClick} />}
                     <sui.Item role="menuitem" icon="download" text={downloadMenuText} tabIndex={-1} onClick={this.onHwDownloadClick} />
                 </sui.DropdownMenu>
             )
@@ -212,7 +237,7 @@ export class EditorToolbar extends data.Component<ISettingsProps, {}> {
         const hideIteration = tutorialOptions && tutorialOptions.metadata && tutorialOptions.metadata.hideIteration;
         const simOpts = pxt.appTarget.simulator;
         const headless = simOpts.headless;
-        const collapsed = (hideEditorFloats || collapseEditorTools) && (!tutorial || headless);
+        const collapsed = (hideEditorFloats && headless) || collapseEditorTools;
         const isEditor = this.props.parent.isBlocksEditor() || this.props.parent.isTextEditor();
         if (!isEditor) return <div />;
 

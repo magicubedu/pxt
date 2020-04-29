@@ -198,8 +198,10 @@ function queue(ce: CacheEntry) {
 
     if (ce.api.isSync)
         final(ce.api.getSync(ce.path))
-    else
-        ce.api.getAsync(ce.path).done(final)
+    else {
+        const p = ce.api.getAsync(ce.path);
+        p.done(final)
+    }
 }
 
 function lookup(path: string) {
@@ -273,6 +275,7 @@ export function stripProtocol(path: string) {
 }
 
 export function invalidate(prefix: string) {
+    prefix = prefix.replace(/:\*$/, ':'); // remove trailing "*";
     Util.values(cachedData).forEach(ce => {
         if (matches(ce, prefix)) {
             ce.lastRefresh = 0;

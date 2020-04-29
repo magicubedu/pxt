@@ -156,26 +156,41 @@ namespace pxt.cpp {
     }
 
     export function getExtensionInfo(mainPkg: MainPackage): pxtc.ExtensionInfo {
-        let pkgSnapshot: Map<string> = {
+        const pkgSnapshot: Map<string> = {
             "__appVariant": pxt.appTargetVariant || ""
         }
-        let constsName = "dal.d.ts"
+        const constsName = "dal.d.ts"
         let sourcePath = "/source/"
-
-        let mainDeps = mainPkg.sortedDeps(true)
-
-        for (let pkg of mainDeps) {
+        let disabledDeps = ""
+        let mainDeps: Package[] = []
+        for (let pkg of mainPkg.sortedDeps(true)) {
+            if (pkg.disablesVariant(pxt.appTargetVariant) ||
+                pkg.resolvedDependencies().some(d => d.disablesVariant(pxt.appTargetVariant))) {
+                if (pkg.id != "this") {
+                    if (disabledDeps)
+                        disabledDeps += ", "
+                    disabledDeps += pkg.id
+                }
+                pxt.debug(`disable variant ${pxt.appTargetVariant} due to ${pkg.id}`)
+                continue
+            }
+            mainDeps.push(pkg)
             pkg.addSnapshot(pkgSnapshot, [constsName, ".h", ".cpp"])
         }
 
         const key = JSON.stringify(pkgSnapshot)
-        if (prevExtInfos[key]) {
+        const prevInfo = prevExtInfos[key]
+        if (prevInfo) {
             pxt.debug("Using cached extinfo")
-            return prevExtInfos[key]
+            const r = U.flatClone(prevInfo)
+            r.disabledDeps = disabledDeps
+            return r
         }
 
         pxt.debug("Generating new extinfo")
         const res = pxtc.emptyExtInfo();
+
+        res.disabledDeps = disabledDeps
 
         let compileService = appTarget.compileService;
         if (!compileService)
@@ -900,9 +915,8 @@ namespace pxt.cpp {
                             U.userError(lf("C++ file {0} is missing in extension {1}.", fn, pkg.config.name))
                         fileName = fullName
 
-                        // parseCpp() will remove doc comments, to prevent excessive recompilation
-                        // pxt.debug("Parse C++: " + fullName)
                         parseCpp(src, isHeader)
+                        src = src.replace(/^[ \t]*/mg, "") // shrink the files
                         res.extensionFiles[sourcePath + fullName] = src
 
                         if (pkg.level == 0)

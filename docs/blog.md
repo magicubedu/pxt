@@ -1,5 +1,22 @@
 # Microsoft MakeCode Blog
 
+## [MakeCode Arcade One Room Game Jam](/blog/arcade/game-jam-2)
+
+April 7th, 2020
+
+Submissions from the second MakeCode Arcade game jam are in. We've been delighted and amazed by the creativity and craft on display in these games! Check out some of our favorite entries from the jam.
+
+**[Continue reading this blog post](/blog/arcade/game-jam-2)**
+
+## [Online Learning Resources](/blog/online-learning)
+
+March 10th, 2020
+
+Many schools have closed or might soon close to help prevent the spread of illness. Both educators and students may need to find ways to promote and continue learning without a classroom. 
+To help families, **the MakeCode team will be live streaming coding lessons**.
+We thought that it might be helpful to again highlight the learning resources we have with MakeCode that support online learning.
+**[Continue reading this blog post](/blog/online-learning)**
+
 ## [MakeCode Python is here!](/blog/minecraft/python-release)
 
 February 19th, 2020 by [Jaqster](https://github.com/jaqster)

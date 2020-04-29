@@ -63,7 +63,7 @@ namespace pxtblockly {
                 return;
             }
             // Build the DOM.
-            this.fieldGroup_ = Blockly.utils.dom.createSvgElement('g', {}, null);
+            this.fieldGroup_ = Blockly.utils.dom.createSvgElement('g', {}, null) as SVGGElement;
             if (!this.visible_) {
                 (this.fieldGroup_ as any).style.display = 'none';
             }
@@ -139,7 +139,7 @@ namespace pxtblockly {
             const bg = new svg.Rect()
                 .at(PADDING, PADDING)
                 .size(BG_WIDTH, BG_WIDTH)
-                .fill("#dedede")
+                .setClass("blocklySpriteField")
                 .stroke("#898989", 1)
                 .corner(4);
 

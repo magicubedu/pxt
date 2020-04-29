@@ -56,7 +56,7 @@ namespace pxtblockly {
                 return;
             }
             // Build the DOM.
-            this.fieldGroup_ = Blockly.utils.dom.createSvgElement('g', {}, null);
+            this.fieldGroup_ = Blockly.utils.dom.createSvgElement('g', {}, null) as SVGGElement;
             if (!this.visible_) {
                 (this.fieldGroup_ as any).style.display = 'none';
             }
@@ -127,7 +127,7 @@ namespace pxtblockly {
         }
 
         getValue() {
-            if (this.isGreyBlock) return pxt.Util.htmlUnescape(this.text_);
+            if (this.isGreyBlock) return pxt.Util.htmlUnescape(this.value_);
 
             return pxt.sprite.encodeTilemap(this.state, "typescript");
         }
@@ -160,8 +160,7 @@ namespace pxtblockly {
             const bg = new svg.Rect()
                 .at(PADDING, PADDING)
                 .size(BG_WIDTH, BG_WIDTH)
-                .fill("#dedede")
-                .stroke("#898989", 1)
+                .setClass("blocklyTilemapField")
                 .corner(4);
 
             this.fieldGroup_.appendChild(bg.el);
@@ -189,7 +188,7 @@ namespace pxtblockly {
             }
             else if (newText.trim()) {
                 this.isGreyBlock = true;
-                this.text_ = newText;
+                this.value_ = newText;
             }
         }
 
@@ -292,7 +291,7 @@ namespace pxtblockly {
         }
 
         getDisplayText_() {
-            const text = pxt.Util.htmlUnescape(this.text_);
+            const text = pxt.Util.htmlUnescape(this.value_);
             return text.substr(0, text.indexOf("(")) + "(...)";;
         }
 

@@ -26,7 +26,7 @@ function setDiagnostics(diagnostics: pxtc.KsDiagnostic[], sourceMap?: pxtc.Sourc
     for (let diagnostic of diagnostics) {
         if (diagnostic.fileName) {
             output += `${diagnostic.category == ts.pxtc.DiagnosticCategory.Error ? lf("error") : diagnostic.category == ts.pxtc.DiagnosticCategory.Warning ? lf("warning") : lf("message")}: ${diagnostic.fileName}(${diagnostic.line + 1},${diagnostic.column + 1}): `;
-            let f = mainPkg.filterFiles(f => f.getTypeScriptName() == diagnostic.fileName)[0]
+            let f = mainPkg.filterFiles(f => f.getTextFileName() == diagnostic.fileName)[0]
             if (f) {
                 f.diagnostics.push(diagnostic)
 
@@ -213,12 +213,13 @@ function compileCoreAsync(opts: pxtc.CompileOptions): Promise<pxtc.CompileResult
     return workerOpAsync("compile", { options: opts })
 }
 
-export function py2tsAsync(): Promise<pxtc.transpile.TranspileResult> {
+export function py2tsAsync(force = false): Promise<pxtc.transpile.TranspileResult> {
     let trg = pkg.mainPkg.getTargetOptions()
     return waitForFirstTypecheckAsync()
         .then(() => pkg.mainPkg.getCompileOptionsAsync(trg))
         .then(opts => {
             opts.target.preferredEditor = pxt.PYTHON_PROJECT_NAME
+
             return workerOpAsync("py2ts", { options: opts })
         })
 }
@@ -429,10 +430,16 @@ export function formatAsync(input: string, pos: number) {
 }
 
 export function snippetAsync(qName: string, python?: boolean): Promise<string> {
-    return workerOpAsync("snippet", {
+    let initStep = Promise.resolve();
+    if (python) {
+        // To make sure that the service is working with the most recent version of the file,
+        // run a typecheck
+        initStep = typecheckAsync().then(() => {})
+    }
+    return initStep.then(() => workerOpAsync("snippet", {
         snippet: { qName, python },
         runtime: pxt.appTarget.runtime
-    }).then(res => res as string)
+    })).then(res => res as string)
 }
 
 export function typecheckAsync() {

@@ -91,7 +91,9 @@ export class ShareEditor extends data.Component<ShareEditorProps, ShareEditorSta
         });
     }
 
-    show(header: pxt.workspace.Header, title?: string) {
+    show(title?: string) {
+        const { header } = this.props.parent.state;
+        if (!header) return;
         // TODO investigate why edge does not render well
         // upon hiding dialog, the screen does not redraw properly
         const thumbnails = pxt.appTarget.cloud && pxt.appTarget.cloud.thumbnails
@@ -108,7 +110,8 @@ export class ShareEditor extends data.Component<ShareEditorProps, ShareEditorSta
             sharingError: undefined,
             screenshotUri: undefined,
             qrCodeUri: undefined,
-            title
+            title,
+            projectName: header.name
         }, thumbnails ? (() => this.props.parent.startSimulator()) : undefined);
     }
 
@@ -339,8 +342,18 @@ export class ShareEditor extends data.Component<ShareEditorProps, ShareEditorSta
                     case ShareMode.Simulator:
                         let padding = '81.97%';
                         // TODO: parts aspect ratio
+                        let simulatorRunString = `${verPrefix}---run`;
+                        if (pxt.webConfig.runUrl) {
+                            if (pxt.webConfig.isStatic) {
+                                simulatorRunString = pxt.webConfig.runUrl;
+                            }
+                            else {
+                                // Always use live, not /beta etc.
+                                simulatorRunString = pxt.webConfig.runUrl.replace(pxt.webConfig.relprefix, "/---")
+                            }
+                        }
                         if (pxt.appTarget.simulator) padding = (100 / pxt.appTarget.simulator.aspectRatio).toPrecision(4) + '%';
-                        const runUrl = rootUrl + (pxt.webConfig.runUrl || `${verPrefix}--run`).replace(/^\//, '');
+                        const runUrl = rootUrl + simulatorRunString.replace(/^\//, '');
                         embed = pxt.docs.runUrl(runUrl, padding, pubId);
                         break;
                     case ShareMode.Url:

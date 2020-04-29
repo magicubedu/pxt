@@ -83,6 +83,8 @@ declare namespace pxt {
         experimentalHw?: boolean;
         requiredCategories?: string[]; // ensure that those block categories are visible
         supportedTargets?: string[]; // a hint about targets in which this extension is supported
+        firmwareUrl?: string; // link to documentation page about upgrading firmware
+        disablesVariants?: string[]; // don't build these variants, when this extension is enabled
     }
 
     interface PackageExtension {
@@ -127,6 +129,7 @@ declare namespace pxt {
         labelClass?: string;
         tags?: string[]; // tags shown in home screen, colors specified in theme
         tabIndex?: number;
+        style?: string; // "card" | "item" | undefined;
 
         color?: string; // one of semantic ui colors
         description?: string;
@@ -137,6 +140,7 @@ declare namespace pxt {
         largeImageUrl?: string;
         videoUrl?: string;
         youTubeId?: string;
+        youTubePlaylistId?: string; // playlist this video belongs to
         buttonLabel?: string;
         time?: number;
         url?: string;
@@ -149,11 +153,6 @@ declare namespace pxt {
         otherActions?: CodeCardAction[];
 
         header?: string;
-        any?: number;
-        hardware?: number;
-        software?: number;
-        blocks?: number;
-        javascript?: number;
 
         tutorialStep?: number;
         tutorialLength?: number;

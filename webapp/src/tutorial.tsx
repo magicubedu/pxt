@@ -39,8 +39,10 @@ export function getUsedBlocksAsync(code: string, language?: string): Promise<pxt
                 const allblocks = headless.getAllBlocks();
                 for (let bi = 0; bi < allblocks.length; ++bi) {
                     const blk = allblocks[bi];
-                    if (!blk.isShadow_) usedBlocks[blk.type] = 1;
+                    if (!blk.isShadow()) usedBlocks[blk.type] = 1;
                 }
+                if (pxt.options.debug)
+                    pxt.debug(JSON.stringify(usedBlocks, null, 2));
                 return usedBlocks;
             } else {
                 throw new Error("Failed to decompile");
@@ -223,6 +225,7 @@ export class TutorialHint extends data.Component<ISettingsProps, TutorialHintSta
     }
 
     showHint(visible: boolean, showFullText?: boolean) {
+        if (visible) Blockly.hideChaff();
         this.setState({ visible, showFullText });
     }
 

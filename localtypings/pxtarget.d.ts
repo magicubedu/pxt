@@ -11,6 +11,12 @@ declare namespace pxt {
         experimentName?: string;
         locales?: string[];
         shuffle?: GalleryShuffle;
+        // pings this url to determine if the gallery is available
+        // value @random@ will be expanded to a random string
+        // looks for 200, 403 error codes
+        testUrl?: string;
+        // requires youtube acces
+        youTube?: boolean;
     }
     interface TargetConfig {
         packages?: PackagesConfig;
@@ -19,8 +25,6 @@ declare namespace pxt {
         // localized galleries
         localizedGalleries?: pxt.Map<pxt.Map<string>>;
         windowsStoreLink?: string;
-        // link to the latest firmware urls (boardid -> url)
-        firmwareUrls?: pxt.Map<string>;
         // release manifest for the electron app
         electronManifest?: pxt.electron.ElectronManifest;
     }
@@ -58,6 +62,7 @@ declare namespace pxt {
         uploadDocs?: boolean; // enable uploading to crowdin on master or v* builds
         variants?: Map<AppTarget>; // patches on top of the current AppTarget for different chip variants
         multiVariants?: string[];
+        alwaysMultiVariant?: boolean;
         queryVariants?: Map<AppTarget>; // patches on top of the current AppTarget using query url regex
         unsupportedBrowsers?: BrowserOptions[]; // list of unsupported browsers for a specific target (eg IE11 in arcade). check browserutils.js browser() function for strings
         checkdocsdirs?: string[]; // list of folders for checkdocs, irrespective of SUMMARY.md
@@ -272,7 +277,7 @@ declare namespace pxt {
         invertedMonaco?: boolean; // if true: use the vs-dark monaco theme
         invertedGitHub?: boolean; // inverted github view
         lightToc?: boolean; // if true: do NOT use inverted style in docs toc
-        blocklyOptions?: Blockly.WorkspaceOptions; // Blockly options, see Configuration: https://developers.google.com/blockly/guides/get-started/web
+        blocklyOptions?: Blockly.BlocklyOptions; // Blockly options, see Configuration: https://developers.google.com/blockly/guides/get-started/web
         hideFlyoutHeadings?: boolean; // Hide the flyout headings at the top of the flyout when on a mobile device.
         monacoColors?: pxt.Map<string>; // Monaco theme colors, see https://code.visualstudio.com/docs/getstarted/theme-color-reference
         simAnimationEnter?: string; // Simulator enter animation
@@ -303,6 +308,7 @@ declare namespace pxt {
         extendEditor?: boolean; // whether a target specific editor.js is loaded
         extendFieldEditors?: boolean; // wether a target specific fieldeditors.js is loaded
         highContrast?: boolean; // simulator has a high contrast mode
+        accessibleBlocks?: boolean; // enable keyboard navigation in blockly
         print?: boolean; //Print blocks and text feature
         greenScreen?: boolean; // display webcam stream in background
         instructions?: boolean; // display make instructions
@@ -361,7 +367,6 @@ declare namespace pxt {
         simGifQuality?: number; // generated gif quality (pixel sampling size) - 30 (poor) - 1 (best), default 16
         simGifMaxFrames?: number; // maximum number of frames, default 64
         simGifWidth?: number; // with in pixels for gif frames
-        autoWebUSBDownload?: boolean; // automatically prompt user for webusb download
         qrCode?: boolean; // generate QR code for shared urls
         importExtensionFiles?: boolean; // import extensions from files
         debugExtensionCode?: boolean; // debug extension and libs code in the Monaco debugger
@@ -377,9 +382,12 @@ declare namespace pxt {
         githubCompiledJs?: boolean; // commit binary.js in commit when creating a github release,
         blocksCollapsing?: boolean; // collapse/uncollapse functions/event in blocks
         hideHomeDetailsVideo?: boolean; // hide video/large image from details card
-        tutorialBlocksDiff?: boolean; // automatically display diffs in tutorials
+        tutorialBlocksDiff?: boolean; // automatically display blocks diffs in tutorials
+        tutorialTextDiff?: boolean; // automatically display text diffs in tutorials
         openProjectNewTab?: boolean; // allow opening project in a new tab
+        openProjectNewDependentTab?: boolean; // allow opening project in a new tab -- connected
         tutorialExplicitHints?: boolean; // allow use explicit hints
+        errorList?: boolean; // error list experiment
     }
 
     interface SocialOptions {
@@ -418,6 +426,12 @@ declare namespace pxt {
     interface PackageApiInfo {
         sha: string;
         apis: ts.pxtc.ApisInfo;
+    }
+
+    interface ServiceWorkerEvent {
+        type: "serviceworker";
+        state: "activated";
+        ref: string;
     }
 }
 
@@ -467,6 +481,7 @@ declare namespace ts.pxtc {
         time?: boolean;
         noIncr?: boolean;
         rawELF?: boolean;
+        multiVariant?: boolean;
     }
 
     interface CompileTarget {
@@ -588,6 +603,7 @@ declare namespace ts.pxtc {
         imageLiteral?: number;
         imageLiteralColumns?: number; // optional number of columns
         imageLiteralRows?: number; // optional number of rows
+        imageLiteralScale?: number; // button sizing between 0.6 and 2, default is 1
         weight?: number;
         parts?: string;
         trackArgs?: number[];
@@ -780,11 +796,12 @@ declare namespace ts.pxtc {
         justMyCode?: boolean;
         computeUsedSymbols?: boolean;
         name?: string;
-        warnDiv?: boolean; // warn when emitting division operator
         apisInfo?: ApisInfo;
         bannedCategories?: string[];
         skipPxtModulesTSC?: boolean; // skip re-checking of pxt_modules/*
         skipPxtModulesEmit?: boolean; // skip re-emit of pxt_modules/*
+
+        otherMultiVariants?: ExtensionTarget[];
 
         syntaxInfo?: SyntaxInfo;
 
@@ -828,9 +845,14 @@ declare namespace ts.pxtc {
         commBase?: number;
         skipCloudBuild?: boolean;
         hexinfo?: HexInfo;
-        otherMultiVariants?: ExtensionInfo[];
         appVariant?: string;
         outputPrefix?: string;
+        disabledDeps?: string;
+    }
+
+    interface ExtensionTarget {
+        extinfo: ExtensionInfo
+        target: CompileTarget
     }
 
     interface HexInfo {
@@ -864,6 +886,7 @@ declare namespace pxt.tutorial {
         explicitHints?: boolean; // tutorial expects explicit hints in `#### ~ tutorialhint` format
         flyoutOnly?: boolean; // no categories, display all blocks in flyout
         hideIteration?: boolean; // hide step control in tutorial
+        diffs?: boolean; // automatically diff snippets
         noDiffs?: boolean; // don't automatically generated diffs
         codeStart?: string; // command to run when code starts (MINECRAFT HOC ONLY)
         codeStop?: string; // command to run when code stops (MINECRAFT HOC ONLY)

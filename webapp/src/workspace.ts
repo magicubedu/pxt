@@ -412,22 +412,28 @@ export function renameAsync(h: Header, newName: string) {
     return cloudsync.renameAsync(h, newName);
 }
 
-export function duplicateAsync(h: Header, text: ScriptText, rename?: boolean): Promise<Header> {
-    let e = lookup(h.id)
+export function duplicateAsync(h: Header, text: ScriptText, newName?: string): Promise<Header> {
+    if (!newName)
+        newName = createDuplicateName(h);
+    const e = lookup(h.id)
     U.assert(e.header === h)
-    let h2 = U.flatClone(h)
+    const h2 = U.flatClone(h)
     e.header = h2
 
+    const dupText = U.flatClone(text);
     h.id = U.guidGen()
-    if (rename) {
-        h.name = createDuplicateName(h);
-        let cfg = JSON.parse(text[pxt.CONFIG_NAME]) as pxt.PackageConfig
-        cfg.name = h.name
-        text[pxt.CONFIG_NAME] = pxt.Package.stringifyConfig(cfg);
-    }
-    delete h._rev
-    delete (h as any)._id
-    return importAsync(h, text)
+    h.name = newName;
+    const cfg = JSON.parse(text[pxt.CONFIG_NAME]) as pxt.PackageConfig;
+    cfg.name = h.name;
+    dupText[pxt.CONFIG_NAME] = pxt.Package.stringifyConfig(cfg);
+
+    delete h._rev;
+    delete (h as any)._id;
+    delete h.githubCurrent;
+    delete h.githubId;
+    delete h.githubTag;
+
+    return importAsync(h, dupText)
         .then(() => h)
 }
 
@@ -841,8 +847,8 @@ async function githubUpdateToAsync(hd: Header, options: UpdateOptions) {
     const oldCfg = pxt.Package.parseAndValidConfig(files[pxt.CONFIG_NAME])
     const cfgText = await downloadAsync(pxt.CONFIG_NAME)
     let cfg = pxt.Package.parseAndValidConfig(cfgText);
-    // invalid cfg or no TypeScript files
-    if (!cfg || !cfg.files.find(f => /\.ts$/.test(f))) {
+    // invalid cfg
+    if (!cfg) {
         if (hd) // not importing
             U.userError(lf("Invalid pxt.json file."));
         pxt.debug(`github: reconstructing pxt.json`)
@@ -1036,15 +1042,16 @@ export function prepareConfigForGithub(content: string, createRelease?: boolean)
     const localDependencies = Object.keys(cfg.dependencies)
         .filter(d => /^(file|workspace):/.test(cfg.dependencies[d]));
     for (const d of localDependencies)
-        resolveDependencyAsync(d);
+        resolveDependency(d);
 
     return pxt.Package.stringifyConfig(cfg);
 
-    function resolveDependencyAsync(d: string) {
+    function resolveDependency(d: string) {
         const v = cfg.dependencies[d];
         const hid = v.substring(v.indexOf(':') + 1);
         const header = getHeader(hid);
-        if (header && !header.githubId) {
+        if (!header) return; // missing workspace dependency, maybe deleted
+        if (!header.githubId) {
             if (createRelease)
                 U.userError(lf("Dependency {0} is a local project.", d))
         } else {

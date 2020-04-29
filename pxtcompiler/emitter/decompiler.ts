@@ -1341,6 +1341,9 @@ ${output}</xml>`;
                         // If the enum declaration made it past the checker then it is emitted elsewhere
                         markCommentsInRange(node, commentMap);
                         return getNext();
+                    case SK.ReturnStatement:
+                        stmt = getReturnStatementBlock(node as ts.ReturnStatement);
+                        break;
                     default:
                         if (next) {
                             error(node, Util.lf("Unsupported statement in block: {0}", SK[node.kind]))
@@ -1544,6 +1547,21 @@ ${output}</xml>`;
             return r;
         }
 
+        function getReturnStatementBlock(node: ts.ReturnStatement): StatementNode {
+            const r = mkStmt(pxtc.TS_RETURN_STATEMENT_TYPE, node);
+            if (node.expression) {
+                r.inputs = [
+                    mkValue("RETURN_VALUE", getOutputBlock(node.expression), numberType)
+                ];
+            }
+            else {
+                r.mutation = {
+                    "no_return_value": "true"
+                };
+            }
+            return r
+        }
+
         function getImageLiteralStatement(node: ts.CallExpression, info: pxtc.CallInfo) {
             let arg = node.arguments[0];
             if (arg.kind != SK.StringLiteral && arg.kind != SK.NoSubstitutionTemplateLiteral) {
@@ -1697,10 +1715,14 @@ ${output}</xml>`;
             }
 
             function checkBooleanCallExpression(n: CallExpression) {
-                const callInfo: pxtc.CallInfo = pxtc.pxtInfo(n.expression).callInfo;
+                const callInfo: pxtc.CallInfo = pxtc.pxtInfo(n).callInfo;
                 if (callInfo) {
                     const api = env.blocks.apis.byQName[callInfo.qName];
                     if (api && api.retType == "boolean") {
+                        return undefined;
+                    }
+                    else if (ts.isIdentifier(n.expression) && env.declaredFunctions[n.expression.text]) {
+                        // User functions have a return type of "any" in blocks so they are safe to decompile
                         return undefined;
                     }
                 }
@@ -1951,7 +1973,15 @@ ${output}</xml>`;
                     const name = getVariableName(node.expression as ts.Identifier);
                     if (env.declaredFunctions[name]) {
                         let r: StatementNode;
-                        r = mkStmt("function_call", node);
+
+                        let isStatement = true;
+
+                        if (info.isExpression) {
+                            const [parent] = getParent(node);
+                            isStatement = parent && parent.kind === SK.ExpressionStatement;
+                        }
+
+                        r = mkStmt(isStatement ? "function_call" : "function_call_output", node);
                         if (info.args.length) {
                             r.mutationChildren = [];
                             r.inputs = [];
@@ -2436,6 +2466,8 @@ ${output}</xml>`;
                 return checkEnumDeclaration(node as ts.EnumDeclaration, topLevel);
             case SK.ModuleDeclaration:
                 return checkNamespaceDeclaration(node as ts.NamespaceDeclaration);
+            case SK.ReturnStatement:
+                return checkReturnStatement(node as ts.ReturnStatement);
             case SK.BreakStatement:
             case SK.ContinueStatement:
             case SK.DebuggerStatement:
@@ -2605,12 +2637,19 @@ ${output}</xml>`;
 
             const attributes = env.attrs(info);
 
+            let userFunction: FunctionDeclaration;
+
+            if (ts.isIdentifier(n.expression)) {
+                userFunction = env.declaredFunctions[n.expression.text];
+            }
+
             if (!asExpression) {
-                if (info.isExpression) {
+                if (info.isExpression && !userFunction) {
                     return Util.lf("No output expressions as statements");
                 }
             }
-            else if (info.qName == "Math.pow") {
+
+            if (info.qName == "Math.pow") {
                 return undefined;
             }
             else if (pxt.Util.startsWith(info.qName, "Math.")) {
@@ -2636,17 +2675,13 @@ ${output}</xml>`;
             if (!attributes.blockId || !attributes.block) {
                 const builtin = pxt.blocks.builtinFunctionInfo[info.qName];
                 if (!builtin) {
-                    if (n.expression.kind === SK.Identifier) {
-                        const funcName = (n.expression as ts.Identifier).text;
-                        if (!env.declaredFunctions[funcName]) {
-                            return Util.lf("Call statements must have a valid declared function");
-                        } else if (env.declaredFunctions[funcName].parameters.length !== info.args.length) {
-                            return Util.lf("Function calls in blocks must have the same number of arguments as the function definition");
-                        } else {
-                            return undefined;
-                        }
+                    if (!userFunction) {
+                        return Util.lf("Call statements must have a valid declared function");
+                    } else if (userFunction.parameters.length !== info.args.length) {
+                        return Util.lf("Function calls in blocks must have the same number of arguments as the function definition");
+                    } else {
+                        return undefined;
                     }
-                    return Util.lf("Function call not supported in the blocks");
                 }
                 attributes.blockId = builtin.blockId;
             }
@@ -2940,17 +2975,6 @@ ${output}</xml>`;
                 }
             }
 
-            let fail = false;
-            ts.forEachReturnStatement(n.body, stmt => {
-                if (stmt.expression) {
-                    fail = true;
-                }
-            });
-
-            if (fail) {
-                return Util.lf("Function with return value not supported in blocks")
-            }
-
             return undefined;
         }
 
@@ -3000,6 +3024,31 @@ ${output}</xml>`;
             if (!tilesetCheck) return undefined;
 
             return kindCheck;
+        }
+
+        function checkReturnStatement(n: ts.ReturnStatement) {
+            if (checkIfWithinFunction(n)) {
+                return undefined;
+            }
+            return Util.lf("Return statements can only be used within top-level function declarations");
+
+            function checkIfWithinFunction(n: Node): boolean {
+                const enclosing = ts.getEnclosingBlockScopeContainer(n);
+                if (enclosing) {
+                    switch (enclosing.kind) {
+                        case SK.SourceFile:
+                        case SK.ArrowFunction:
+                        case SK.FunctionExpression:
+                            return false;
+                        case SK.FunctionDeclaration:
+                            return enclosing.parent && enclosing.parent.kind === SK.SourceFile && !checkStatement(enclosing, env, false, true);
+                        default:
+                            return checkIfWithinFunction(enclosing);
+                    }
+                }
+
+                return false;
+            }
         }
     }
 
@@ -3701,10 +3750,6 @@ ${output}</xml>`;
                 for (const line of comment.lines) {
                     out += line.trim() + "\n";
                 }
-            }
-
-            if (comment.hasTrailingNewline) {
-                out += "\n";
             }
         }
 

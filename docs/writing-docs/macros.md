@@ -341,9 +341,10 @@ If you need a rendering of typescript, javascript code, specify the language as 
 
 #### ~ hint
 
-In tutorial, MakeCode automatically renders a diff between each typescrit or spy snippets.
+In tutorial, MakeCode can render a diff between each typescrit or spy snippets.
 To reset the diff on a step, use the ``@resetDiff`` metadata. 
-Use ``### @noDiffs`` to disable diffs for the entire tutorial
+
+Use ``### @diffs true/false`` to enable/disable diffs for the entire tutorial
 
 #### ~
 
@@ -387,6 +388,14 @@ To render one or more code cards as JSON into cards, use **codecard**.
     }]
     ```
 
+### apis
+
+Render all blocks from a given set of namespaces as code cards.
+
+    ```apis
+    basic
+    ```
+
 ### ignore #ignore
 
 Append `-ignore` to any of the above to ignore a snippet in automated testing:
@@ -414,4 +423,15 @@ You can use `typescript-valid` to showcase typescript that is **correct**:
     ```typescript-valid
     // You can include any TS in here, e.g. to showcase correct syntax
     callFunction();
+    ```
+
+### @highlight
+
+The render will higlight the next line or block following a 
+comment with **@highlight**.
+
+    ```blocks
+    console.log(":)")
+    // @highlight
+    console.log(":(")
     ```

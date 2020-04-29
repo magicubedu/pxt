@@ -44,53 +44,38 @@ namespace pxt.py {
     /// UTILS
     ///
     export const INDENT = "    "
-    function indent(lvl: number): (s: string) => string {
+    export function indent(lvl: number): (s: string) => string {
         return s => `${INDENT.repeat(lvl)}${s}`
     }
-    const indent1 = indent(1)
+    export const indent1 = indent(1)
 
-    // TODO handle shadowing
     // TODO handle types at initialization when ambiguous (e.g. x = [], x = None)
 
-    interface Scope {
-        vars: pxt.Map<ts.Node>
-    }
-
     function tsToPy(prog: ts.Program, filename: string): string {
-        // state
-        // TODO pass state explicitly
-        let global: Scope = { vars: {} } // TODO populate global scope
-        let env: Scope[] = [global]
-
         // helpers
-        let tc = prog.getTypeChecker()
-        let lhost = new ts.pxtc.LSHost(prog)
-        // let ls = ts.createLanguageService(lhost) // TODO
-        let file = prog.getSourceFile(filename)
-        let commentMap = pxtc.decompiler.buildCommentMap(file);
-        let reservedWords = pxt.U.toSet(getReservedNmes(), s => s)
-        let [renameMap, globalNames] = ts.pxtc.decompiler.buildRenameMap(prog, file, reservedWords)
-        let allSymbols = pxtc.getApiInfo(prog)
-        let symbols = pxt.U.mapMap(allSymbols.byQName,
+        const tc = prog.getTypeChecker()
+        const lhost = new ts.pxtc.LSHost(prog)
+        // const ls = ts.createLanguageService(lhost) // TODO
+        const file = prog.getSourceFile(filename)
+        const commentMap = pxtc.decompiler.buildCommentMap(file);
+        const reservedWords = pxt.U.toSet(getReservedNmes(), s => s)
+        const [renameMap, globalNames] = ts.pxtc.decompiler.buildRenameMap(prog, file, reservedWords)
+        const allSymbols = pxtc.getApiInfo(prog)
+        const symbols = pxt.U.mapMap(allSymbols.byQName,
             // filter out symbols from the .ts corresponding to this file
             (k, v) => v.fileName == filename ? undefined : v)
+
+        // For debugging:
+        // return toStringVariableScopes(file)
+
+        // variables analysis
+        const scopeLookup = computeScopeVariableLookup(file)
+
         // ts->py
         return emitFile(file)
         ///
         /// ENVIRONMENT
         ///
-        // TODO: it's possible this parallel scope construction isn't necessary if we can get the info we need from the TS semantic info
-        function pushScope(): Scope {
-            let newScope = mkScope()
-            env.unshift(newScope)
-            return newScope
-            function mkScope(): Scope {
-                return { vars: {} }
-            }
-        }
-        function popScope(): Scope | undefined {
-            return env.shift()
-        }
         function getReservedNmes(): string[] {
             const reservedNames = ['ArithmeticError', 'AssertionError', 'AttributeError',
                 'BaseException', 'BlockingIOError', 'BrokenPipeError', 'BufferError', 'BytesWarning',
@@ -131,11 +116,30 @@ namespace pxt.py {
             if (!exp.getSourceFile())
                 return null
             let tsExp = exp.getText()
+
+            const tsSym = tc.getSymbolAtLocation(exp);
+            if (tsSym) {
+                tsExp = tc.getFullyQualifiedName(tsSym);
+            }
+
             let sym = symbols[tsExp]
             if (sym && sym.attributes.alias) {
                 return sym.attributes.alias
             }
             if (sym && sym.pyQName) {
+                if (sym.isInstance) {
+                    if (ts.isPropertyAccessExpression(exp)) {
+                        // If this is a property access on an instance, we should bail out
+                        // because the left-hand side might contain an expression
+                        return null;
+                    }
+
+                    // If the pyQname is "Array.append" we just want "append"
+                    const nameRegExp = new RegExp(`(?:^|\.)${sym.namespace}\.(.+)`);
+                    const match = nameRegExp.exec(sym.pyQName);
+                    if (match) return match[1];
+                }
+
                 return sym.pyQName
             }
             else if (tsExp in pxtc.ts2PyFunNameMap) {
@@ -171,34 +175,6 @@ namespace pxt.py {
                 return nameHint
             }
         }
-        // TODO decide on strategy for tracking variable scope(s)
-        // function introVar(name: string, decl: ts.Node): string {
-        //     let scope = env[0]
-        //     let maxItr = 100
-        //     let newName = name
-        //     for (let i = 0; i < maxItr && newName in scope.vars; i++) {
-        //         let matches = newName.match(/\d+$/);
-        //         if (matches) {
-        //             let num = parseInt(matches[0], 10)
-        //             num++
-        //             newName = newName.replace(/\d+$/, num.toString())
-        //         } else {
-        //             newName += 1
-        //         }
-        //     }
-        //     if (newName in scope.vars)
-        //         throw Error("Implementation error: unable to find an alternative variable name for: " + newName)
-        //     if (newName !== name) {
-        //         // do rename
-        //         let locs = ls.findRenameLocations(filename, decl.pos + 1, false, false)
-        //         for (let l of locs) {
-        //             // ts.getNode
-
-        //         }
-        //     }
-        //     scope.vars[newName] = decl
-        //     return newName
-        // }
 
         ///
         /// TYPE UTILS
@@ -264,17 +240,14 @@ namespace pxt.py {
         }
 
         function emitStmtWithNewlines(s: ts.Statement): string[] {
-            let out: string[] = [];
+            const out = emitStmt(s);
 
-            const comments = pxtc.decompiler.getCommentsForStatement(s, commentMap);
+            // get comments after emit so that child nodes get a chance to claim them
+            const comments = pxtc.decompiler.getCommentsForStatement(s, commentMap)
+                .map(emitComment)
+                .reduce((p, c) => p.concat(c), [])
 
-            for (const comment of comments) {
-                out.push(...emitComment(comment));
-            }
-
-            out = out.concat(emitStmt(s))
-
-            return out;
+            return comments.concat(out);
         }
 
         ///
@@ -708,14 +681,6 @@ namespace pxt.py {
             let stmts = s.getChildren()
                 .map(emitNode)
                 .reduce((p, c) => p.concat(c), [])
-            // TODO figuring out variable scoping..
-            // let syms = tc.getSymbolsInScope(s, ts.SymbolFlags.Variable)
-            // let symTxt = "#ts@ " + syms.map(s => s.name).join(", ")
-            // stmts.unshift(symTxt)
-            // stmts.unshift("# {") // TODO
-            // let pyVars = "#py@ " + Object.keys(env[0].vars).join(", ")
-            // stmts.push(pyVars)
-            // stmts.push("# }")
             return stmts
         }
         function emitFuncDecl(s: ts.FunctionDeclaration | ts.MethodDeclaration | ts.FunctionExpression | ts.ConstructorDeclaration | ts.ArrowFunction,
@@ -740,7 +705,6 @@ namespace pxt.py {
             let out = []
 
             let fnName: string
-
             if (s.kind === ts.SyntaxKind.Constructor) {
                 fnName = "__init__"
             }
@@ -755,8 +719,6 @@ namespace pxt.py {
 
             out.push(`def ${fnName}(${params}):`)
 
-            pushScope() // functions start a new scope in python
-
             if (!s.body)
                 return throwError(s, 3013, "Unsupported: function decleration without body");
 
@@ -769,12 +731,20 @@ namespace pxt.py {
                 stmts.concat(exp)
             }
             if (stmts.length) {
+                // global or nonlocal declerations
+                let globals = scopeLookup.getExplicitGlobals(s)
+                    .map(g => getName(g))
+                if (globals && globals.length)
+                    stmts.unshift(`global ${globals.join(", ")}`)
+                let nonlocals = scopeLookup.getExplicitNonlocals(s)
+                    .map(n => getName(n))
+                if (nonlocals && nonlocals.length)
+                    stmts.unshift(`nonlocal ${nonlocals.join(", ")}`)
+
                 out = out.concat(stmts.map(indent1))
             } else {
                 out.push(indent1("pass")) // cannot have an empty body
             }
-
-            popScope()
 
             return out
         }
@@ -947,13 +917,15 @@ namespace pxt.py {
 
             return asExpRes(`${expToStr(left)}.${right}`, leftSup);
         }
-        function getSimpleExpNameParts(s: ts.Expression, skipNamespaces = false): string[] {
+        function getSimpleExpNameParts(s: ts.Expression): string[] {
             // TODO(dz): Impl skip namespaces properly. Right now we just skip the left-most part of a property access
             if (ts.isPropertyAccessExpression(s)) {
-                let nmPart = [getName(s.name)]
-                if (skipNamespaces && ts.isIdentifier(s.expression))
-                    return nmPart
-                return getSimpleExpNameParts(s.expression, skipNamespaces).concat(nmPart)
+                let nmPart = getName(s.name)
+                if (ts.isIdentifier(s.expression)) {
+                    if (nmPart.indexOf(".") >= 0) nmPart = nmPart.substr(nmPart.lastIndexOf(".") + 1);
+                    return [nmPart]
+                }
+                return getSimpleExpNameParts(s.expression).concat([nmPart])
             }
             else if (ts.isIdentifier(s)) {
                 return [getName(s)]
@@ -965,7 +937,7 @@ namespace pxt.py {
             // get words from the callee
             let calleePart: string = ""
             if (calleeExp)
-                calleePart = getSimpleExpNameParts(calleeExp, /*skipNamespaces*/true)
+                calleePart = getSimpleExpNameParts(calleeExp)
                     .map(pxtc.snakify)
                     .join("_")
 
@@ -977,7 +949,7 @@ namespace pxt.py {
                     let arg = allArgs[i]
                     let argType = tc.getTypeAtLocation(arg)
                     if (hasTypeFlag(argType, ts.TypeFlags.EnumLike)) {
-                        let argParts = getSimpleExpNameParts(arg, /*skipNamespaces*/true)
+                        let argParts = getSimpleExpNameParts(arg)
                             .map(pxtc.snakify)
                         enumParamParts = enumParamParts.concat(argParts)
                     }
@@ -1013,9 +985,8 @@ namespace pxt.py {
                     break
                 allWords = newWords
             }
-            // 3. if there is only one word, add "on_" prefix
-            if (allWords.length == 1)
-                allWords = ["on", allWords[0]]
+            // 3. add an "on_" prefix
+            allWords = ["on", ...allWords]
 
             return allWords.join("_")
             function dedupWords(words: string[]): string[] {
@@ -1046,7 +1017,7 @@ namespace pxt.py {
         // use newlines to separate items
         function getCommaSep(exps: string[]): string[] {
             let res = exps.join(", ");
-            if (res.length > 60) {
+            if (res.length > 60 && exps.length > 1) {
                 return exps.map((el, i) => {
                     let sep = el.charAt(el.length - 1) == "," ? "" : ",";
                     if (i == 0) {
@@ -1314,31 +1285,29 @@ namespace pxt.py {
             return asExpRes(exp, sup)
         }
         function emitExp(s: ts.Expression): ExpRes {
+            if (ts.isBinaryExpression(s))
+                return emitBinExp(s)
+            if (ts.isPropertyAccessExpression(s))
+                return emitDotExp(s)
+            if (ts.isCallExpression(s))
+                return emitCallExp(s)
+            if (ts.isNewExpression(s))
+                return emitCallExp(s)
+            if (ts.isFunctionExpression(s) || ts.isArrowFunction(s))
+                return emitFnExp(s)
+            if (ts.isPrefixUnaryExpression(s))
+                return emitPreUnaryExp(s)
+            if (ts.isPostfixUnaryExpression(s))
+                return emitPostUnaryExp(s)
+            if (ts.isParenthesizedExpression(s))
+                return emitParenthesisExp(s)
+            if (ts.isArrayLiteralExpression(s))
+                return emitArrayLitExp(s)
+            if (ts.isElementAccessExpression(s))
+                return emitElAccessExp(s)
+            if (ts.isNoSubstitutionTemplateLiteral(s) || ts.isTaggedTemplateExpression(s))
+                return emitMultiLnStrLitExp(s as ts.NoSubstitutionTemplateLiteral | ts.TaggedTemplateExpression)
             switch (s.kind) {
-                case ts.SyntaxKind.BinaryExpression:
-                    return emitBinExp(s as ts.BinaryExpression)
-                case ts.SyntaxKind.PropertyAccessExpression:
-                    return emitDotExp(s as ts.PropertyAccessExpression)
-                case ts.SyntaxKind.CallExpression:
-                    return emitCallExp(s as ts.CallExpression)
-                case ts.SyntaxKind.NewExpression:
-                    return emitCallExp(s as ts.NewExpression)
-                case ts.SyntaxKind.FunctionExpression:
-                case ts.SyntaxKind.ArrowFunction:
-                    return emitFnExp(s as ts.FunctionExpression | ts.ArrowFunction)
-                case ts.SyntaxKind.PrefixUnaryExpression:
-                    return emitPreUnaryExp(s as ts.PrefixUnaryExpression);
-                case ts.SyntaxKind.PostfixUnaryExpression:
-                    return emitPostUnaryExp(s as ts.PostfixUnaryExpression);
-                case ts.SyntaxKind.ParenthesizedExpression:
-                    return emitParenthesisExp(s as ts.ParenthesizedExpression)
-                case ts.SyntaxKind.ArrayLiteralExpression:
-                    return emitArrayLitExp(s as ts.ArrayLiteralExpression)
-                case ts.SyntaxKind.ElementAccessExpression:
-                    return emitElAccessExp(s as ts.ElementAccessExpression)
-                case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
-                case ts.SyntaxKind.TaggedTemplateExpression:
-                    return emitMultiLnStrLitExp(s as ts.TaggedTemplateExpression)
                 case ts.SyntaxKind.TrueKeyword:
                     return asExpRes("True")
                 case ts.SyntaxKind.FalseKeyword:
@@ -1348,19 +1317,18 @@ namespace pxt.py {
                 case ts.SyntaxKind.NullKeyword:
                 case ts.SyntaxKind.UndefinedKeyword:
                     return asExpRes("None")
-                case ts.SyntaxKind.Identifier:
-                    return emitIdentifierExp(s as ts.Identifier)
-                case ts.SyntaxKind.NumericLiteral:
-                case ts.SyntaxKind.StringLiteral:
-                    // TODO handle weird syntax?
-                    return asExpRes(s.getText())
-                case ts.SyntaxKind.ConditionalExpression:
-                    return emitCondExp(s as ts.ConditionalExpression)
-                default:
-                    // TODO handle more expressions
-                    return asExpRes(s.getText(), ["# unknown expression:  " + s.kind]) // uncomment for easier locating
-                // throw Error("Unknown expression: " + s.kind)
             }
+            if (ts.isIdentifier(s))
+                return emitIdentifierExp(s)
+            if (ts.isNumericLiteral(s) || ts.isStringLiteral(s))
+                // TODO handle weird syntax?
+                return asExpRes(s.getText())
+            if (ts.isConditionalExpression(s))
+                return emitCondExp(s)
+
+            // TODO handle more expressions
+            return asExpRes(s.getText(), ["# unknown expression:  " + s.kind]) // uncomment for easier locating
+            // throw Error("Unknown expression: " + s.kind)
         }
     }
 }
