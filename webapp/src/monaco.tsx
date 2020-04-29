@@ -449,7 +449,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                     return compiler.compileAsync()
                         .then(resp => {
                             if (resp.success) {
-                                return this.transpileToBlocksInternalAsync(this.currFile, blocksInfo, generatedVarDecls, oldWorkspace)
+                                return this.transpileToBlocksInternalAsync(this.currFile, blocksInfo, oldWorkspace, generatedVarDecls)
                                     .then(resp => {
                                         if (!resp.success) {
                                             const failed = resp.failedResponse;
@@ -523,7 +523,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         })
     }
 
-    protected transpileToBlocksInternalAsync(file: pkg.File, blocksInfo: pxtc.BlocksInfo, generatedVarDecls?: pxt.Map<pxt.blocks.VarDeclaration>, oldWorkspace: Blockly.Workspace): Promise<TranspileResult> {
+    protected transpileToBlocksInternalAsync(file: pkg.File, blocksInfo: pxtc.BlocksInfo, oldWorkspace: Blockly.Workspace, generatedVarDecls?: pxt.Map<pxt.blocks.VarDeclaration>): Promise<TranspileResult> {
         const mainPkg = pkg.mainEditorPkg();
 
         const tsFilename = file.getVirtualFileName(pxt.JAVASCRIPT_PROJECT_NAME);
