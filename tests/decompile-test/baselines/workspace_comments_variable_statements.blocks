@@ -8,7 +8,6 @@
 <field name="NUM">0</field>
 </shadow>
 </value>
-<data>0</data>
 <next>
 <block type="variables_set">
 <field name="VAR">x</field>
@@ -19,10 +18,8 @@
 </value>
 </block>
 </next>
+<comment pinned="false">lakskdjfl&#59;askjdf</comment>
 </block>
 </statement>
 </block>
-<comment h="120" w="160" data="0">
-lakskdjfl&#59;askjdf
-</comment>
 </xml>

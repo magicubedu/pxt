@@ -15,7 +15,7 @@
 </value>
 <next>
 <block type="typescript_statement">
-<mutation declaredvars="var2" numlines="1" error="Variable type is not supported by Blockly" line0="let var2&#58; testNamespace.TestClass &#61; null&#59;" />
+<mutation declaredvars="var2" numlines="1" error="Unsupported syntax kind for output expression block&#58; NullKeyword" line0="let var2&#58; testNamespace.TestClass &#61; null&#59;" />
 <next>
 <block type="variables_set">
 <field name="VAR">var2</field>
@@ -57,6 +57,8 @@
 <field name="NUM">3</field>
 </shadow>
 </value>
+</block>
+</next>
 </block>
 </next>
 </block>

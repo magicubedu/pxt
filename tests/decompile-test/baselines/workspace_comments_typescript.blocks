@@ -3,7 +3,6 @@
 <mutation name="doSomething" >
 <arg name="arg" type="number" />
 </mutation>
-<data>0</data>
 <statement name="STACK">
 <block type="variables_set">
 <field name="VAR">x</field>
@@ -15,9 +14,6 @@
 <comment pinned="false">This is not</comment>
 </block>
 </statement>
-<comment pinned="false">This is not</comment>
+<comment pinned="false">This is a workspace comment</comment>
 </block>
-<comment h="120" w="270" data="0">
-This is a workspace comment
-</comment>
 </xml>
