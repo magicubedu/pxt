@@ -71,8 +71,8 @@ namespace pxt.storage {
         // test if local storage is supported
         const sid = storageId();
         let supported = false;
-        // no local storage in sandbox mode
-        if (!pxt.shell.isSandboxMode()) {
+        // no local storage in sandbox and controller mode
+        if (!pxt.shell.isSandboxMode() && !pxt.shell.isControllerMode()) {
             try {
                 window.localStorage[sid] = '1';
                 let v = window.localStorage[sid];
