@@ -565,7 +565,7 @@ export class ProjectsCarousel extends data.Component<ProjectsCarouselProps, Proj
                         {cards.map((scr, index) =>
                             <ProjectsCodeCard
                                 className="example"
-                                key={path + (scr.name || scr.url)}
+                                key={path + (scr.youTubeId || scr.name || scr.url)}
                                 name={scr.name}
                                 url={scr.url}
                                 imageUrl={scr.imageUrl}
@@ -1006,16 +1006,18 @@ export class ImportDialog extends data.Component<ISettingsProps, ImportDialogSta
     private async cloneGithub() {
         pxt.tickEvent("github.projects.clone", undefined, { interactiveConsent: true });
         this.hide();
-        await cloudsync.githubProvider().loginAsync();
-        if (pxt.github.token)
-            this.props.parent.showImportGithubDialog();
+        this.props.parent.showImportGithubDialog();
     }
 
     renderCore() {
         const { visible } = this.state;
+        const targetTheme = pxt.appTarget.appTheme;
         const disableFileAccessinMaciOs = pxt.appTarget.appTheme.disableFileAccessinMaciOs && (pxt.BrowserUtils.isIOS() || pxt.BrowserUtils.isMac());
         const showImport = pxt.appTarget.cloud && pxt.appTarget.cloud.sharing && pxt.appTarget.cloud.importing;
-        const showCreateGithubRepo = pxt.appTarget?.cloud?.cloudProviders?.github;
+        const showCreateGithubRepo = targetTheme.githubEditor
+            && !pxt.winrt.isWinRT() // not supported in windows 10
+            && !pxt.BrowserUtils.isPxtElectron()
+            && pxt.appTarget?.cloud?.cloudProviders?.github;
         /* tslint:disable:react-a11y-anchors */
         return (
             <sui.Modal isOpen={visible} className="importdialog" size="small"

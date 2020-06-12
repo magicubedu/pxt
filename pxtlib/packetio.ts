@@ -71,12 +71,16 @@ namespace pxt.packetio {
         return !!wrapper && (wrapper.icon || "usb");
     }
 
+    let disconnectPromise: Promise<void>
     export function disconnectAsync(): Promise<void> {
-        log('disconnect')
+        if (disconnectPromise)
+            return disconnectPromise;
         let p = Promise.resolve();
         if (wrapper) {
-            p = p.then(() => wrapper.disconnectAsync())
-                .then(() => wrapper.io.disposeAsync())
+            debug('packetio: disconnect')
+            const w = wrapper;
+            p = p.then(() => w.disconnectAsync())
+                .then(() => w.io.disposeAsync())
                 .catch(e => {
                     // swallow execeptions
                     pxt.reportException(e);
@@ -84,10 +88,12 @@ namespace pxt.packetio {
                 .finally(() => {
                     initPromise = undefined; // dubious
                     wrapper = undefined;
+                    disconnectPromise = undefined;
                 });
+            if (onConnectionChangedHandler)
+                p = p.then(() => onConnectionChangedHandler());
+            disconnectPromise = p;
         }
-        if (onConnectionChangedHandler)
-            p = p.then(() => onConnectionChangedHandler());
         return p;
     }
 
@@ -107,19 +113,27 @@ namespace pxt.packetio {
         if (wrapper)
             return Promise.resolve(wrapper);
 
-        pxt.log(`packetio: new wrapper`)
+        if (!mkPacketIOAsync) {
+            pxt.debug(`packetio: not defined, skipping`)
+            return Promise.resolve(undefined);
+        }
+
+        pxt.debug(`packetio: new wrapper`)
         return mkPacketIOAsync()
             .then(io => {
                 io.onConnectionChanged = onConnectionChangedHandler;
                 wrapper = mkPacketIOWrapper(io);
                 if (onSerialHandler)
                     wrapper.onSerial = onSerialHandler;
+                // trigger ui update
+                if (onConnectionChangedHandler)
+                    onConnectionChangedHandler();
                 return wrapper;
             })
     }
 
     export function initAsync(force = false): Promise<PacketIOWrapper> {
-        pxt.log(`packetio: init ${force ? "(force)" : ""}`)
+        pxt.debug(`packetio: init ${force ? "(force)" : ""}`)
         if (!initPromise) {
             let p = Promise.resolve();
             if (force)

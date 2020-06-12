@@ -221,7 +221,7 @@ s.pc = -1;
         }
         writeRaw(`
 while (true) {
-if (yieldSteps-- < 0 && maybeYield(s, step, r0)) return null;
+if (yieldSteps-- < 0 && maybeYield(s, step, r0) || runtime !== pxsim.runtime) return null;
 switch (step) {
   case 0:
 `)
@@ -617,6 +617,10 @@ function ${id}(s) {
             })
 
             let callIt = `s.pc = ${lblId}; return ${frameRef};`
+
+            if (procid.callLocationIndex != null) {
+                callIt = `s.callLocIdx = ${procid.callLocationIndex}; ${callIt}`
+            }
 
             if (procid.ifaceIndex != null) {
                 U.assert(callproc == null)

@@ -1,0 +1,86 @@
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Microsoft MakeCode Streamer</title>
+    <link rel="stylesheet" href="/streamer/style.css" />
+    <style id="editorstyle"></style>
+</head>
+
+<body class="rightscene">
+    <div id="container" class="container">
+    <iframe class="box" id="editor" allow="usb;camera"></iframe>
+    <iframe class="box" id="editor2" allow="usb;camera"></iframe>
+    <iframe class="box" id="chat" sandbox="allow-scripts allow-same-origin"></iframe>
+    <video class="box" autoplay="true" id="facecam"></video>
+    <video class="box" autoplay="true" id="hardwarecam"></video>
+    <canvas id="paint" class=""></canvas>
+    <canvas id="painttool" class=""></canvas>
+    <div class="box" id="social">
+        <div id="toolbox">
+        </div>
+        <div id="banner"></div>
+    </div>
+    <div class="box hidden" id="settings">
+        <button id="settingsclose">close</button>
+        <h2>MakeCode Streamer settings</h2>
+        <div class="field">
+            <label for="editorselect">Choose your editor</label>
+            <select id="editorselect"></select>
+        </div>
+        <div class="field">
+            <input type="checkbox" id="multicheckbox"></input>
+            <label for="multicheckbox">Multi editors</label>
+        </div>
+        <h2>Video</h2>
+        <div class="field">
+            <label for="facecamselect">Choose a Face Webcam</label>
+            <select id="facecamselect"></select>
+            <div class="error hidden" id="facecamerror">Connection error. Make sure the camera is not blocked and that the WebCam is not beging used by another application.</div>
+        </div>
+        <div class="field">
+            <input type="checkbox" id="facerotatecameracheckbox"></input>
+            <label for="facerotatecameracheckbox">Rotate camera 180</label>
+        </div>
+        <div class="field">
+            <label for="hardwarecamselect">Choose a Hardware Webcam</label>
+            <select id="hardwarecamselect"></select>
+            <div class="error hidden" id="hardwarecamerror">Connection error. Make sure the camera is not blocked and that the WebCam is not beging used by another application.</div>
+        </div>
+        <div class="field">
+            <input type="checkbox" id="hardwarerotatecameracheckbox"></input>
+            <label for="hardwarerotatecameracheckbox">Rotate camera 180</label>
+        </div>
+        <h2>Social accounts</h2>
+        <div class="field">
+            <label for="twitterinput">Twitter (optional)</label>
+            <input id="twitterinput" placeholder="Twitter handle (@account)" />
+        </div>
+        <h2>Paint</h2>
+        <div class="field">
+            <label for="emojisinput">Emojis</label>
+            <input id="emojisinput" placeholder="Emojis" />
+        </div>
+        <h2>Streaming chats</h2>
+        <div class="field">
+            <label for="mixerinput">Mixer (optional)</label>
+            <input id="mixerinput" placeholder="Mixer.com account (/account)" />
+        </div>
+        <div class="field">
+            <label for="twitchinput">Twitch (optional)</label>
+            <input id="twitchinput" placeholder="Twitch.tv account (/account)" />
+        </div>
+    </div>
+</div>
+<footer>
+    <a class="item" href="https://makecode.com/privacy" target="_blank" rel="noopener">Privacy &amp; Cookies</a>|
+    <a class="item" href="https://makecode.com/termsofuse" target="_blank" rel="noopener">Terms Of Use</a>|
+    <a class="item" href="https://makecode.com/trademarks" target="_blank" rel="noopener">Trademarks</a>|
+    <span class="item">© 2020 Microsoft</span>
+</footer>
+
+    <!-- @include tracking.html -->
+<script src="/streamer/script.js"></script>
+</body>
+
+</html>

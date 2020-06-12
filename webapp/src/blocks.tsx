@@ -37,7 +37,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
 
     public nsMap: pxt.Map<toolbox.BlockDefinition[]>;
 
-    setBreakpointsMap(breakpoints: pxtc.Breakpoint[]): void {
+    setBreakpointsMap(breakpoints: pxtc.Breakpoint[], procCallLocations: pxtc.LocationInfo[]): void {
         let map: pxt.Map<number> = {};
         if (!breakpoints || !this.compilationResult) return;
         breakpoints.forEach(breakpoint => {
@@ -83,7 +83,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     handleKeyDown = (e: any) => {
         if (this.parent.state?.accessibleBlocks) {
             let charCode = (typeof e.which == "number") ? e.which : e.keyCode
-            if (charCode === 84 /* T Key */) { // SHAKAO check if blocks accessibility on
+            if (charCode === 84 /* T Key */) {
                 this.focusToolbox();
                 e.stopPropagation();
             }
@@ -353,7 +353,6 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                 header: message,
                 initialValue: defaultValue,
                 agreeLbl: lf("Ok"),
-                hideCancel: true,
                 hasCloseIcon: true,
                 size: "tiny"
             }).then(value => {
@@ -561,8 +560,6 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         const blocklyDiv = this.getBlocksEditorDiv();
         // Position blocklyDiv over blocklyArea.
         if (blocklyDiv && this.editor) {
-            blocklyDiv.style.width = blocklyArea.offsetWidth + 'px';
-            blocklyDiv.style.height = blocklyArea.offsetHeight + 'px';
             Blockly.svgResize(this.editor);
             this.resizeToolbox();
             this.resizeFieldEditorView();
@@ -636,7 +633,6 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     closeFlyout() {
         if (!this.editor) return;
         this.hideFlyout();
-        Blockly.hideChaff();
     }
 
     getId() {
@@ -712,6 +708,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
 
         if (debugging) {
             this.toolbox.hide();
+            // unselect any highlighted block
+            (Blockly.selected as Blockly.BlockSvg)?.unselect();
         } else {
             this.debuggerToolbox = null;
             this.toolbox.show();
@@ -909,6 +907,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         if (stmt) {
             let bid = pxt.blocks.findBlockIdByLine(this.compilationResult.sourceMap, { start: stmt.line, length: stmt.endLine - stmt.line });
             if (bid) {
+                const parent = pxt.blocks.getTopLevelParent(this.editor.getBlockById(bid));
+                bid = parent?.isCollapsed() ? parent.id : bid;
                 this.editor.highlightBlock(bid);
                 if (brk) {
                     const b = this.editor.getBlockById(bid) as Blockly.BlockSvg;
@@ -1016,7 +1016,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                 maxScale: 2.5,
                 minScale: .2,
                 scaleSpeed: 1.5,
-                startScale: pxt.BrowserUtils.isMobile() ? 0.7 : 0.9
+                startScale: pxt.BrowserUtils.isMobile() ? 0.7 : 0.9,
+                pinch: true
             },
             rtl: Util.isUserLanguageRtl()
         };
@@ -1228,7 +1229,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     }
 
     private filterBlocks(subns: string, blocks: toolbox.BlockDefinition[]) {
-        return blocks.filter((block => !(block.attributes.blockHidden || block.attributes.deprecated)
+        return blocks.filter((block => !(block.attributes.blockHidden)
+            && !(block.attributes.deprecated && !this.parent.isTutorial())
             && ((!subns && !block.attributes.subcategory && !block.attributes.advanced)
                 || (subns && ((block.attributes.advanced && subns == lf("more"))
                     || (block.attributes.subcategory && subns == block.attributes.subcategory))))));
@@ -1389,6 +1391,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
             this.flyoutXmlList.push(label);
         }
         this.showFlyoutInternal_(this.flyoutXmlList, "search");
+        this.toolbox.setSearch();
     }
 
     private showTopBlocksFlyout() {
@@ -1669,7 +1672,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         return [blockXml];
         function shouldShowBlock(fn: pxtc.SymbolInfo) {
             if (fn.attributes.debug && !pxt.options.debug) return false;
-            if (!shadow && (fn.attributes.deprecated || fn.attributes.blockHidden)) return false;
+            if (!shadow && fn.attributes.blockHidden) return false;
+            if (fn.attributes.deprecated && !that.parent.isTutorial()) return false;
             let ns = (fn.attributes.blockNamespace || fn.namespace).split('.')[0];
             return that.shouldShowBlock(fn.attributes.blockId, ns, shadow);
         }

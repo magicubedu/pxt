@@ -91,7 +91,8 @@ export class FileList extends data.Component<ISettingsProps, FileListState> {
         const { currentFile } = this.state;
         const header = this.props.parent.state.header;
         const topPkg = pkg.isTopLevel();
-        const deleteFiles = topPkg && !pxt.shell.isReadOnly();
+        const shellReadonly = pxt.shell.isReadOnly();
+        const deleteFiles = topPkg && !shellReadonly;
         const langRestrictions = pkg.getLanguageRestrictions();
         let files = pkg.sortedFiles();
 
@@ -119,7 +120,8 @@ export class FileList extends data.Component<ISettingsProps, FileListState> {
                 && /\.md$/.test(file.name)
                 && !/^_locales\//.test(file.name)
             const fn = file.name.replace(/\.[a-z]+$/, '');
-            const previewUrl = isTutorialMd
+            const previewUrl = !shellReadonly
+                && isTutorialMd
                 && `#tutorial:${header.id}:${fn}`;
             const ghid = usesGitHub && pxt.github.parseRepoId(header.githubId)
             const shareUrl = isTutorialMd && ghid
@@ -127,7 +129,8 @@ export class FileList extends data.Component<ISettingsProps, FileListState> {
                 && `${window.location.origin}${window.location.pathname || ""}#tutorial:github:${ghid.fullName}/${fn}`
             const lang = pxt.Util.userLanguage();
             const localized = `_locales/${lang}/${file.name}`;
-            const addLocale = isTutorialMd
+            const addLocale = !shellReadonly
+                && isTutorialMd
                 && pxt.Util.userLanguage() !== (pxt.appTarget.appTheme.defaultLocale || "en")
                 && !files.some(f => f.name == localized);
             const hasDelete = deleteFiles
@@ -159,7 +162,8 @@ export class FileList extends data.Component<ISettingsProps, FileListState> {
 
     private packageOf(p: pkg.EditorPackage) {
         const expandedPkg = this.state.expandedPkg;
-        const del = p.getPkgId() != pxt.appTarget.id
+        const del = !pxt.shell.isReadOnly()
+            && p.getPkgId() != pxt.appTarget.id
             && p.getPkgId() != "built"
             && p.getPkgId() != "assets"
             && p.getPkgId() != pxt.appTarget.corepkg
@@ -207,7 +211,7 @@ export class FileList extends data.Component<ISettingsProps, FileListState> {
         e.stopPropagation();
     }
 
-    private addTypeScriptFile() {
+    private addProjectFile() {
         const validRx = /^[\w][\/\w\-\.]*$/;
         core.promptAsync({
             header: lf("Add new file?"),
@@ -239,6 +243,7 @@ export class FileList extends data.Component<ISettingsProps, FileListState> {
 
             let ext = 'ts';
             let comment = "//";
+            let commentText = pxt.U.lf("Add your code here");
 
             if (languageRestriction === pxt.editor.LanguageRestriction.PythonOnly) {
                 ext = "py";
@@ -257,7 +262,12 @@ export class FileList extends data.Component<ISettingsProps, FileListState> {
                         break;
                     case "md":
                         ext = "md";
-                        comment = ">";
+                        comment = "#";
+                        commentText = name;
+                        break;
+                    case "json":
+                        ext = "json"
+                        comment = undefined;
                         break;
                     default:
                         // not a valid extension; leave it as it was and append def extension
@@ -280,8 +290,8 @@ export class FileList extends data.Component<ISettingsProps, FileListState> {
             }
             return this.props.parent.updateFileAsync(
                 fileName,
-                `${comment} ${pxt.U.lf("Add your code here")}
-`,
+                comment ? `${comment} ${commentText}
+` : "",
                 true
             );
         }).done()
@@ -289,7 +299,7 @@ export class FileList extends data.Component<ISettingsProps, FileListState> {
 
     private addCustomBlocksFile() {
         if (this.props.parent.state.header.githubId || pxt.appTarget.appTheme.addNewTypeScriptFile) {
-            this.addTypeScriptFile()
+            this.addProjectFile()
             return
         }
         core.confirmAsync({
@@ -418,7 +428,6 @@ class FileTreeItem extends sui.StatelessUIElement<FileTreeItemProps> {
             header: lf("Share this tutorial"),
             body: lf("The URL will start the MakeCode editor in your tutorial."),
             copyable: this.props.shareUrl,
-            hideCancel: true,
             hasCloseIcon: true
         })
     }

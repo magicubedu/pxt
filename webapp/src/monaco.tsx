@@ -68,11 +68,25 @@ class CompletionProvider implements monaco.languages.CompletionItemProvider {
         const wordStartOffset = model.getOffsetAt({ lineNumber: position.lineNumber, column: word.startColumn })
         const wordEndOffset = model.getOffsetAt({ lineNumber: position.lineNumber, column: word.endColumn })
 
+
         return compiler.completionsAsync(fileName, offset, wordStartOffset, wordEndOffset, source)
             .then(completions => {
+                function stripLocalNamespace(qName: string): string {
+                    // leave out namespace qualifiers if we're inside a matching namespace
+                    if (!qName)
+                        return qName
+                    for (let ns of completions.namespace) {
+                        if (qName.startsWith(ns + "."))
+                            qName = qName.substr((ns + ".").length)
+                        else
+                            break
+                    }
+                    return qName
+                }
+
                 const items = (completions.entries || []).map((si, i) => {
-                    let insertSnippet = this.python ? si.pySnippet : si.snippet;
-                    let qName = this.python ? si.pyQName : si.qName;
+                    let insertSnippet = stripLocalNamespace(this.python ? si.pySnippet : si.snippet);
+                    let qName = stripLocalNamespace(this.python ? si.pyQName : si.qName);
                     let name = this.python ? si.pyName : si.name;
                     let completionSnippet: string | undefined = undefined;
                     let isMultiLine = insertSnippet && insertSnippet.indexOf("\n") >= 0
@@ -103,7 +117,7 @@ class CompletionProvider implements monaco.languages.CompletionItemProvider {
                         // remove what precedes the "." in the full snippet.
                         // E.g. if the user is typing "mobs.", we want to complete with "spawn" (name) not "mobs.spawn" (qName)
                         if (completions.isMemberCompletion && completionSnippet) {
-                            const nameStart = completionSnippet.indexOf(name);
+                            const nameStart = completionSnippet.lastIndexOf(name);
                             if (nameStart !== -1) {
                                 completionSnippet = completionSnippet.substr(nameStart)
                             }
@@ -121,6 +135,11 @@ class CompletionProvider implements monaco.languages.CompletionItemProvider {
                         endLineNumber: position.lineNumber
                     }
 
+                    // Need to take the whitespace out of this string, otherwise monaco
+                    // won't dismiss the suggest widget when the user types a space. Replace
+                    // them with commas so that we don't confuse the fuzzy matcher in monaco
+                    const filterText = `${label},${documentation},${block}`.replace(/\s/g, ",")
+
                     let res: monaco.languages.CompletionItem = {
                         label: label,
                         range,
@@ -129,7 +148,7 @@ class CompletionProvider implements monaco.languages.CompletionItemProvider {
                         detail: insertSnippet,
                         // force monaco to use our sorting
                         sortText: `${tosort(i)} ${insertSnippet}`,
-                        filterText: `${label} ${documentation} ${block}`,
+                        filterText: filterText,
                         insertText: completionSnippet || undefined,
                     };
                     return res
@@ -203,22 +222,34 @@ class HoverProvider implements monaco.languages.HoverProvider {
      * to the word range at the position when omitted.
      */
     provideHover(model: monaco.editor.IReadOnlyModel, position: monaco.Position, token: monaco.CancellationToken): monaco.languages.Hover | monaco.Thenable<monaco.languages.Hover> {
+        // Don't provide hover if currently dragging snippet
+        if (this.editor.hasInsertionSnippet()) return null;
+
         const offset = model.getOffsetAt(position);
         const source = model.getValue();
         const fileName = this.editor.currFile.name;
         return compiler.syntaxInfoAsync("symbol", fileName, offset, source)
             .then(r => {
                 let sym = r.symbols ? r.symbols[0] : null
-                if (!sym) return null;
-                const documentation = pxt.Util.rlf(sym.attributes.jsDoc);
 
-                let contents: string[] = [r.auxResult[0], documentation];
+                let contents: string[];
+                if (sym) {
+                    const documentation = pxt.Util.rlf(sym.attributes.jsDoc);
 
-                const res: monaco.languages.Hover = {
-                    contents: contents.map(toMarkdownString),
-                    range: monaco.Range.fromPositions(model.getPositionAt(r.beginPos), model.getPositionAt(r.endPos))
+                    contents = [r.auxResult[0], documentation];
                 }
-                return res
+                else if (r.auxResult) {
+                    contents = [r.auxResult.displayString, r.auxResult.documentation];
+                }
+
+                if (contents) {
+                    const res: monaco.languages.Hover = {
+                        contents: contents.map(toMarkdownString),
+                        range: monaco.Range.fromPositions(model.getPositionAt(r.beginPos), model.getPositionAt(r.endPos))
+                    }
+                    return res;
+                }
+                return null;
             });
     }
 }
@@ -331,6 +362,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     private highlightedBreakpoint: number;
     private editAmendmentsListener: monaco.IDisposable | undefined;
     private errorChangesListeners: pxt.Map<(errors: pxtc.KsDiagnostic[]) => void> = {};
+    private exceptionChangesListeners: pxt.Map<(exception: pxsim.DebuggerBreakpointMessage, locations: pxtc.LocationInfo[]) => void> = {}
+    private callLocations: pxtc.LocationInfo[];
 
     private handleFlyoutWheel = (e: WheelEvent) => e.stopPropagation();
     private handleFlyoutScroll = (e: WheelEvent) => e.stopPropagation();
@@ -338,8 +371,11 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     constructor(parent: pxt.editor.IProjectView) {
         super(parent);
 
-        this.resize = this.resize.bind(this);
+        this.setErrorListState = this.setErrorListState.bind(this);
         this.listenToErrorChanges = this.listenToErrorChanges.bind(this);
+        this.listenToExceptionChanges = this.listenToExceptionChanges.bind(this)
+        this.goToError = this.goToError.bind(this);
+        this.startDebugger = this.startDebugger.bind(this)
     }
 
     hasBlocks() {
@@ -566,9 +602,10 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     }
 
     display(): JSX.Element {
-        let showErrorList = pxt.appTarget.appTheme.errorList;
+        const showErrorList = pxt.appTarget.appTheme.errorList;
+        const isAndroid = pxt.BrowserUtils.isAndroid();
         return (
-            <div id="monacoEditorArea" className="monacoEditorArea" style={{ direction: 'ltr' }}>
+            <div id="monacoEditorArea" className={`monacoEditorArea ${isAndroid ? "android" : ""}`} style={{ direction: 'ltr' }}>
                 {this.isVisible && <div className={`monacoToolboxDiv ${(this.toolbox && !this.toolbox.state.visible && !this.isDebugging()) ? 'invisible' : ''}`}>
                     <toolbox.Toolbox ref={this.handleToolboxRef} editorname="monaco" parent={this} />
                     <div id="monacoDebuggerToolbox"></div>
@@ -582,14 +619,48 @@ export class Editor extends toolboxeditor.ToolboxEditor {
                             setInsertionSnippet={this.setInsertionSnippet}
                             parent={this.parent} />
                     </div>
-                    {showErrorList ? <ErrorList onSizeChange={this.resize} listenToErrorChanges={this.listenToErrorChanges} /> : undefined}
+                    {showErrorList && <ErrorList onSizeChange={this.setErrorListState} listenToErrorChanges={this.listenToErrorChanges}
+                        listenToExceptionChanges={this.listenToExceptionChanges} goToError={this.goToError}
+                        startDebugger={this.startDebugger} />}
                 </div>
             </div>
         )
     }
 
+    listenToExceptionChanges(handlerKey: string, handler: (exception: pxsim.DebuggerBreakpointMessage, locations: pxtc.LocationInfo[]) => void) {
+        this.exceptionChangesListeners[handlerKey] = handler;
+    }
+
+    public onExceptionDetected(exception: pxsim.DebuggerBreakpointMessage) {
+        for (let listener of pxt.U.values(this.exceptionChangesListeners)) {
+            listener(exception, this.callLocations);
+        }
+    }
+
     listenToErrorChanges(handlerKey: string, handler: (errors: pxtc.KsDiagnostic[]) => void) {
         this.errorChangesListeners[handlerKey] = handler;
+    }
+
+    goToError(error: pxtc.KsDiagnostic) {
+        // Use endLine and endColumn to position the cursor
+        // when errors do have them
+        let line, column;
+        if (error.endLine && error.endColumn) {
+            line = error.endLine + 1;
+            column = error.endColumn + 1;
+        } else {
+            line = error.line + 1;
+            column = error.column + error.length + 1;
+        }
+
+        this.editor.revealLineInCenter(line);
+        this.editor.setPosition({ column: column, lineNumber: line });
+        this.editor.focus();
+    }
+
+    startDebugger() {
+        pxt.tickEvent('errorList.startDebugger', null, { interactiveConsent: true })
+        this.parent.toggleDebugging()
     }
 
     private onErrorChanges(errors: pxtc.KsDiagnostic[]) {
@@ -723,6 +794,17 @@ export class Editor extends toolboxeditor.ToolboxEditor {
             });
 
             if (monacoToolboxDiv) monacoToolboxDiv.style.height = `100%`;
+        }
+    }
+
+    setErrorListState(newState?: pxt.editor.ErrorListState) {
+        const oldState = this.parent.state.errorListState;
+
+        if (oldState != newState) {
+            this.resize();
+            this.parent.setState({
+                errorListState: newState
+            });
         }
     }
 
@@ -1193,8 +1275,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
             || this.isDebugging();
         return pxt.appTarget.appTheme.monacoToolbox
             && !readOnly
-            && ((this.fileType == "typescript" && this.currFile.name == "main.ts")
-                || (this.fileType == "python" && this.currFile.name == "main.py"));
+            && (this.fileType == "typescript" || this.fileType == "python");
     }
 
     loadFileAsync(file: pkg.File, hc?: boolean): Promise<void> {
@@ -1364,7 +1445,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
         });
     }
 
-    setBreakpointsMap(breakpoints: pxtc.Breakpoint[]): void {
+    setBreakpointsMap(breakpoints: pxtc.Breakpoint[], procCallLocations: pxtc.LocationInfo[]): void {
+        this.callLocations = procCallLocations;
         if (this.isDebugging()) {
             if (!this.breakpoints) {
                 this.breakpoints = new BreakpointCollection(breakpoints, this.pythonSourceMap);
@@ -1684,7 +1766,8 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     }
 
     private filterBlocks(subns: string, blocks: toolbox.BlockDefinition[]) {
-        return blocks.filter((block => !(block.attributes.blockHidden || block.attributes.deprecated)
+        return blocks.filter((block => !(block.attributes.blockHidden)
+            && !(block.attributes.deprecated && !this.parent.isTutorial())
             && (block.name.indexOf('_') != 0)
             && ((!subns && !block.attributes.subcategory && !block.attributes.advanced)
                 || (subns && ((block.attributes.advanced && subns == lf("more"))
@@ -1694,7 +1777,7 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     private getBuiltinBlocks(ns: string, subns: string) {
         let cat = snippets.getBuiltinCategory(ns);
         let blocks = cat.blocks || [];
-        if (!cat.custom && this.nsMap[ns]) blocks = blocks.concat(this.nsMap[ns].filter(block => !(block.attributes.blockHidden || block.attributes.deprecated)));
+        if (!cat.custom && this.nsMap[ns]) blocks = blocks.concat(this.nsMap[ns].filter(block => !(block.attributes.blockHidden) &&  !(block.attributes.deprecated && !this.parent.isTutorial())));
         return this.filterBlocks(subns, blocks);
     }
 
@@ -1860,6 +1943,11 @@ export class Editor extends toolboxeditor.ToolboxEditor {
     // Snippet as string, or "qName:" + qualified name of block
     public setInsertionSnippet = (snippet: string) => {
         this.insertionSnippet = snippet;
+    }
+
+    // Check if insertion snippet is currently set
+    public hasInsertionSnippet = (): boolean => {
+        return !!this.insertionSnippet;
     }
 
     ///////////////////////////////////////////////////////////

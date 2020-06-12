@@ -93,6 +93,7 @@ namespace pxt.py {
 
 
     const builtInTypes: Map<Type> = {
+        "str": tpString,
         "string": tpString,
         "number": tpNumber,
         "boolean": tpBoolean,
@@ -538,7 +539,9 @@ namespace pxt.py {
         t0 = find(t0)
         t1 = find(t1)
 
-        if (t0 === t1)
+        // We don't handle generic types yet, so bail out. Worst case
+        // scenario is that we infer some extra types as "any"
+        if (t0 === t1 || isGenericType(t0) || isGenericType(t1))
             return
 
         if (t0.primType === "any") {
@@ -569,6 +572,10 @@ namespace pxt.py {
             // detect late unifications
             // if (currIteration > 2) error(a, `unify ${t2s(t0)} ${t2s(t1)}`)
         }
+    }
+
+    function isGenericType(t: Type) {
+        return !!(t?.primType?.startsWith("'"));
     }
 
     function mkSymbol(kind: SK, qname: string): SymbolInfo {
@@ -679,7 +686,7 @@ namespace pxt.py {
         for (let ct of constructorTypes) {
             let f = getClassField(ct, n, checkOnly)
             if (f) {
-                let isModule = !!ct.moduleTypeMarker
+                let isModule = !!recvType.moduleType
                 if (isModule) {
                     if (f.isInstance)
                         error(null, 9505, U.lf("the field '{0}' of '{1}' is not static", n, ct.pyQName))
@@ -847,6 +854,20 @@ namespace pxt.py {
                 return builtInTypes[tpName]
 
             error(e, 9506, U.lf("cannot find type '{0}'", tpName))
+        }
+        else {
+            // translate Python to TS type annotation for arrays
+            // example: List[str] => string[]
+            if (isSubscript(e)/*i.e. [] syntax*/) {
+                let isList = tryGetName(e.value) === "List"
+                if (isList) {
+                    if (isIndex(e.slice)) {
+                        let listTypeArg = compileType(e.slice.value)
+                        let listType = mkArrayType(listTypeArg)
+                        return listType
+                    }
+                }
+            }
         }
 
         error(e, 9507, U.lf("invalid type syntax"))
@@ -1105,9 +1126,10 @@ namespace pxt.py {
                 else
                     nodes.push(B.mkText("export function "), quote(funname))
             }
+            let retType = n.returns ? compileType(n.returns) : sym.pyRetType;
             nodes.push(
                 doArgs(n, isMethod),
-                n.returns ? typeAnnot(compileType(n.returns)) : B.mkText(""))
+                retType && find(retType) != tpVoid ? typeAnnot(retType) : B.mkText(""))
 
             // make sure type is initialized
             getOrSetSymbolType(sym)
@@ -1594,7 +1616,24 @@ namespace pxt.py {
                 }
             }
         }
-        return B.mkStmt(B.mkText(pref), B.mkInfix(expr(target), "=", expr(value)))
+
+        let lExp: B.JsNode | undefined = undefined;
+        if (annotation) {
+            // if we have a type annotation, emit it in these cases if the r-value is:
+            //  - null / undefined
+            //  - empty list
+            if (value.kind === "NameConstant" && (value as NameConstant).value === null
+                || value.kind === "List" && (value as List).elts.length === 0) {
+                const annotAsType = compileType(annotation)
+                const annotStr = t2s(annotAsType);
+
+                lExp = B.mkInfix(expr(target), ":", B.mkText(annotStr))
+            }
+        }
+        if (!lExp)
+            lExp = expr(target)
+
+        return B.mkStmt(B.mkText(pref), B.mkInfix(lExp, "=", expr(value)))
 
         function convertName(n: py.Name) {
             // TODO resuse with Name expr
@@ -1952,6 +1991,7 @@ namespace pxt.py {
 
             if (isCallTo(n, "str")) {
                 // Our standard method of toString in TypeScript is to concatenate with the empty string
+                unify(n, n.tsType!, tpString);
                 return B.mkInfix(B.mkText(`""`), "+", expr(n.args[0]))
             }
 
@@ -2102,7 +2142,7 @@ namespace pxt.py {
             return B.mkText(`hex\`${U.toHex(new Uint8Array(n.s))}\``)
         },
         NameConstant: (n: py.NameConstant) => {
-            if (n.value != null) {
+            if (n.value !== null) {
                 if (!n.tsType)
                     error(n, 9558, lf("tsType missing"));
                 unify(n, n.tsType!, tpBoolean)
@@ -2141,6 +2181,7 @@ namespace pxt.py {
         },
         Subscript: (n: py.Subscript) => {
             if (n.slice.kind == "Index") {
+                unifyTypeOf(n, typeOf(n.value));
                 let idx = (n.slice as py.Index).value
                 if (currIteration > 2 && isFree(typeOf(idx))) {
                     unifyTypeOf(idx, tpNumber)
@@ -2152,7 +2193,21 @@ namespace pxt.py {
                     B.mkText("]"),
                 ])
             } else if (n.slice.kind == "Slice") {
+                const valueType = typeOf(n.value);
+                unifyTypeOf(n, valueType);
                 let s = n.slice as py.Slice
+
+                if (s.step) {
+                    const isString = valueType?.primType === "string";
+
+                    return B.H.mkCall(isString ? "_py.stringSlice" : "_py.slice", [
+                        expr(n.value),
+                        s.lower ? expr(s.lower) : B.mkText("null"),
+                        s.upper ? expr(s.upper) : B.mkText("null"),
+                        expr(s.step)
+                    ]);
+                }
+
                 return B.mkInfix(expr(n.value), ".",
                     B.H.mkCall("slice", [s.lower ? expr(s.lower) : B.mkText("0"),
                     s.upper ? expr(s.upper) : null].filter(isTruthy)))
@@ -2341,8 +2396,13 @@ namespace pxt.py {
             && sym.modifier === undefined
             && (sym.lastRefPos! > sym.forVariableEndPos!
                 || sym.firstRefPos! < sym.firstAssignPos!
-                || sym.firstAssignDepth! > scope.blockDepth!);
+                || sym.firstAssignDepth! > scope.blockDepth!)
+            && !(isTopLevelScope(scope) && sym.firstAssignDepth! === 0);
         return !!result
+    }
+
+    function isTopLevelScope(scope: py.ScopeDef) {
+        return scope.kind === "Module" && (scope as py.Module).name === "main";
     }
 
     // TODO look at scopes of let
