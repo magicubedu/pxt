@@ -1494,13 +1494,43 @@ namespace pxt.blocks {
             if (url) (pxt.blocks.openHelpUrl || window.open)(url);
         };
 
-        // Reference: https://github.com/google/blockly/blob/07762ff4da3c713f7592c80052b1fa7cadb461a2/core/block_svg.js#L715
+        // c.f. https://github.com/google/blockly/blob/3.20200123.1/core/block_svg.js#L196
+        Blockly.BlockSvg.prototype.initSvg = function () {
+            if (!this.workspace.rendered) {
+                throw TypeError('Workspace is headless.');
+            }
+            // tslint:disable-next-line: no-conditional-assignment
+            for (let i = 0, input; (input = this.inputList[i]); i++) {
+                input.init();
+            }
+            const icons = this.getIcons();
+            for (let i = 0; i < icons.length; i++) {
+                icons[i].createIcon();
+            }
+            this.applyColour();
+            this.pathObject.updateMovable(this.isMovable());
+            const svg = this.getSvgRoot();
+            if (!this.eventsInit_ && svg) {
+                Blockly.bindEventWithChecks_(
+                    svg, 'mousedown', this, this.onMouseDown_);
+            }
+            this.eventsInit_ = true;
+
+            if (!svg.parentNode) {
+                this.workspace.getCanvas().appendChild(svg);
+            }
+        };
+
+        // c.f. https://github.com/google/blockly/blob/3.20200123.1/core/block_svg.js#L718
         function generateBlockSvgContextMenu(): Blockly.ContextMenu.Option[] {
             const menuOptions: Blockly.ContextMenu.Option[] = [];
 
             if (!this.contextMenu) {
                 return menuOptions;
             }
+
+            console.log("Workspace Options");
+            console.log(this.workspace.options);
 
             const block = this;
 
@@ -1511,7 +1541,7 @@ namespace pxt.blocks {
                     callback: async () => {
                         const blockInDom = Blockly.Xml.blockToDom(block, true);
                         Blockly.Xml.deleteNext(blockInDom);
-                        const xmlRoot = document.createElementNS("http://www.w3.org/1999/xhtml", "xml");
+                        const xmlRoot = document.createElementNS("https://developers.google.com/blockly/xml", "xml");
                         xmlRoot.appendChild(blockInDom);
                         xmlRoot.querySelectorAll("*").forEach(element => {
                             element.removeAttribute("deletable");
@@ -1617,7 +1647,7 @@ namespace pxt.blocks {
         Blockly.BlockSvg.prototype.generateContextMenu = generateBlockSvgContextMenu;
 
         // Use Blockly hook to customize context menu
-        (<any>Blockly).WorkspaceSvg.prototype.configureContextMenu = function (options: Blockly.ContextMenu.Option[], e: any) {
+        Blockly.WorkspaceSvg.prototype.configureContextMenu = function (options: Blockly.ContextMenu.Option[], e: any) {
             if (this.isFlyout) {
                 return;
             }
