@@ -1529,9 +1529,6 @@ namespace pxt.blocks {
                 return menuOptions;
             }
 
-            console.log("Workspace Options");
-            console.log(this.workspace.options);
-
             const block = this;
 
             if (blockCopyHandler !== undefined) {
