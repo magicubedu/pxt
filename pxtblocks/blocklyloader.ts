@@ -1646,18 +1646,16 @@ namespace pxt.blocks {
 
         Blockly.BlockSvg.prototype.generateContextMenu = generateBlockSvgContextMenu;
 
-        // Use Blockly hook to customize context menu
-        Blockly.WorkspaceSvg.prototype.configureContextMenu = function (options: Blockly.ContextMenu.Option[], e: any) {
+        // c.f. https://github.com/google/blockly/blob/3.20200123.1/core/workspace_svg.js#L1673
+        Blockly.WorkspaceSvg.prototype.showContextMenu = function (e) {
             if (this.isFlyout) {
                 return;
             }
-
-            // Clear default Blockly options
-            options.length = 0;
-            let topBlocks = this.getTopBlocks(true);
-            let eventGroup = Blockly.utils.genUid();
-            let topComments = this.getTopComments();
-            let ws = this;
+            const options: Blockly.ContextMenu.Option[] = [];
+            const topBlocks = this.getTopBlocks(true);
+            const eventGroup = Blockly.utils.genUid();
+            const topComments = this.getTopComments();
+            const ws = this;
 
             if (!this.options.readOnly) {
                 // Option to add a workspace comment.
@@ -1826,10 +1824,17 @@ namespace pxt.blocks {
                 if (onShowContextMenu)
                     onShowContextMenu(this, options);
             }
-        };
 
-        // Get rid of bumping behavior
-        (Blockly as any).Constants.Logic.LOGIC_COMPARE_ONCHANGE_MIXIN.onchange = function () { }
+            // Get rid of bumping behavior
+            (Blockly as any).Constants.Logic.LOGIC_COMPARE_ONCHANGE_MIXIN.onchange = function () { }
+
+            // Allow the developer to add or modify menuOptions.
+            if (this.configureContextMenu) {
+                this.configureContextMenu(options);
+            }
+
+            Blockly.ContextMenu.show(e, options, this.RTL);
+        };
     }
 
     function initOnStart() {
