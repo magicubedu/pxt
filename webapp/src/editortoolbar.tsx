@@ -79,7 +79,7 @@ class EditorSelector extends data.Component<ISettingsProps, {}> {
     renderCore() {
         const { parent } = this.props;
         return (
-            <div className="ui red buttons">
+            <div className="ui green buttons">
                 <BlocksButton parent={parent} />
                 <JavascriptButton parent={parent} />
                 <PythonButton parent={parent} />
