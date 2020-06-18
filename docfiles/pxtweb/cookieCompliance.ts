@@ -167,12 +167,16 @@ namespace pxt {
     }
 
     export function initAnalyticsAsync() {
+        if (isIFrame()) {
+            return;
+        }
+
         if (isNativeApp() || shouldHideCookieBanner()) {
             initializeAppInsightsInternal(true);
             return;
         }
 
-        if (isSandboxMode() || isControllerMode() || (window as any).pxtSkipAnalyticsCookie) {
+        if (isSandboxMode() || (window as any).pxtSkipAnalyticsCookie) {
             initializeAppInsightsInternal(false);
             return;
         }
@@ -391,10 +395,6 @@ namespace pxt {
         //We don't want cookie notification in the share page
         const sandbox = /sandbox=1|#sandbox|#sandboxproject/i.test(window.location.href)
         return sandbox;
-    }
-
-    function isControllerMode(): boolean {
-        return /controller=1/i.test(window.location.href);
     }
 
     // No promises, so here we are
