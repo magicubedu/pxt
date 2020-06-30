@@ -82,7 +82,7 @@ class EditorSelector extends data.Component<ISettingsProps, {}> {
             <div className="ui green buttons">
                 <BlocksButton parent={parent} />
                 <JavascriptButton parent={parent} />
-                <PythonButton parent={parent} />
+                {pxt.appTarget.appTheme.python && <PythonButton parent={parent} />}
             </div>
         )
     }
