@@ -1522,6 +1522,7 @@ namespace pxt.blocks {
         };
 
         // c.f. https://github.com/google/blockly/blob/3.20200123.1/core/block_svg.js#L718
+        // c.f. https://github.com/microsoft/pxt-blockly/blob/v3.0.18/core/block_svg.js
         function generateBlockSvgContextMenu(): Blockly.ContextMenu.Option[] {
             const menuOptions: Blockly.ContextMenu.Option[] = [];
 
@@ -1557,36 +1558,43 @@ namespace pxt.blocks {
                 });
             }
 
+            // pxt-blockly restrict certain menu options to top blocks only
+            const isTopBlock = block.previousConnection == null && block.outputConnection == null;
+            const isCollapsible = this.workspace.options.collapse || pxt.appTarget.appTheme.blocksCollapsing;
+
             if (!this.isInFlyout) {
                 if (this.isDeletable() && this.isMovable()) {
                     menuOptions.push(Blockly.ContextMenu.blockDuplicateOption(block));
                 }
 
+                // pxt-blockly don't allow comments on shadow argument reporters
                 if (this.workspace.options.comments && !this.collapsed_ &&
-                    this.isEditable()) {
+                    this.isEditable() && !Blockly.pxtBlocklyUtils.isShadowArgumentReporter(block)) {
                     menuOptions.push(Blockly.ContextMenu.blockCommentOption(block));
                 }
 
                 if (!this.collapsed_) {
                     // Option to make block inline.
-                    for (let i = 1; i < this.inputList.length; i++) {
-                        if (this.inputList[i - 1].type != Blockly.NEXT_STATEMENT &&
-                            this.inputList[i].type != Blockly.NEXT_STATEMENT) {
-                            // Only display this option if there are two value or dummy inputs
-                            // next to each other.
-                            const isInline = this.getInputsInline();
-                            menuOptions.push({
-                                text: isInline ? Blockly.Msg['EXTERNAL_INPUTS'] : Blockly.Msg['INLINE_INPUTS'],
-                                enabled: true,
-                                callback: function () {
-                                    block.setInputsInline(!isInline);
-                                }
-                            });
-                            break;
+                    if (this.workspace.options.inline) {
+                        for (let i = 1; i < this.inputList.length; i++) {
+                            if (this.inputList[i - 1].type != Blockly.NEXT_STATEMENT &&
+                                this.inputList[i].type != Blockly.NEXT_STATEMENT) {
+                                // Only display this option if there are two value or dummy inputs
+                                // next to each other.
+                                const isInline = this.getInputsInline();
+                                menuOptions.push({
+                                    text: isInline ? Blockly.Msg['EXTERNAL_INPUTS'] : Blockly.Msg['INLINE_INPUTS'],
+                                    enabled: true,
+                                    callback: function () {
+                                        block.setInputsInline(!isInline);
+                                    }
+                                });
+                                break;
+                            }
                         }
                     }
-                    // Option to collapse block
-                    if (pxt.appTarget.appTheme.blocksCollapsing) {
+                    // Option to collapse block (pxt-blockly: top blocks only)
+                    if (isCollapsible && isTopBlock) {
                         menuOptions.push({
                             text: Blockly.Msg['COLLAPSE_BLOCK'],
                             enabled: true,
@@ -1596,8 +1604,8 @@ namespace pxt.blocks {
                         });
                     }
                 } else {
-                    // Option to expand block.
-                    if (pxt.appTarget.appTheme.blocksCollapsing) {
+                    // Option to expand block. (pxt-blockly: top blocks only)
+                    if (isCollapsible && isTopBlock) {
                         menuOptions.push({
                             text: Blockly.Msg['EXPAND_BLOCK'],
                             enabled: true,
@@ -1642,6 +1650,7 @@ namespace pxt.blocks {
         Blockly.BlockSvg.prototype.generateContextMenu = generateBlockSvgContextMenu;
 
         // c.f. https://github.com/google/blockly/blob/3.20200123.1/core/workspace_svg.js#L1673
+        // c.f. https://github.com/microsoft/pxt-blockly/blob/v3.0.18/core/workspace_svg.js
         Blockly.WorkspaceSvg.prototype.showContextMenu = function (e) {
             if (this.isFlyout) {
                 return;
