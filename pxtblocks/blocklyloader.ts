@@ -1567,46 +1567,44 @@ namespace pxt.blocks {
                     menuOptions.push(Blockly.ContextMenu.blockCommentOption(block));
                 }
 
-                if (this.isMovable()) {
-                    if (!this.collapsed_) {
-                        // Option to make block inline.
-                        for (let i = 1; i < this.inputList.length; i++) {
-                            if (this.inputList[i - 1].type != Blockly.NEXT_STATEMENT &&
-                                this.inputList[i].type != Blockly.NEXT_STATEMENT) {
-                                // Only display this option if there are two value or dummy inputs
-                                // next to each other.
-                                const isInline = this.getInputsInline();
-                                menuOptions.push({
-                                    text: isInline ? Blockly.Msg['EXTERNAL_INPUTS'] : Blockly.Msg['INLINE_INPUTS'],
-                                    enabled: true,
-                                    callback: function () {
-                                        block.setInputsInline(!isInline);
-                                    }
-                                });
-                                break;
+                if (!this.collapsed_) {
+                    // Option to make block inline.
+                    for (let i = 1; i < this.inputList.length; i++) {
+                        if (this.inputList[i - 1].type != Blockly.NEXT_STATEMENT &&
+                            this.inputList[i].type != Blockly.NEXT_STATEMENT) {
+                            // Only display this option if there are two value or dummy inputs
+                            // next to each other.
+                            const isInline = this.getInputsInline();
+                            menuOptions.push({
+                                text: isInline ? Blockly.Msg['EXTERNAL_INPUTS'] : Blockly.Msg['INLINE_INPUTS'],
+                                enabled: true,
+                                callback: function () {
+                                    block.setInputsInline(!isInline);
+                                }
+                            });
+                            break;
+                        }
+                    }
+                    // Option to collapse block
+                    if (pxt.appTarget.appTheme.blocksCollapsing) {
+                        menuOptions.push({
+                            text: Blockly.Msg['COLLAPSE_BLOCK'],
+                            enabled: true,
+                            callback: function () {
+                                block.setCollapsed(true);
                             }
-                        }
-                        // Option to collapse block
-                        if (this.workspace.options.collapse) {
-                            menuOptions.push({
-                                text: Blockly.Msg['COLLAPSE_BLOCK'],
-                                enabled: true,
-                                callback: function () {
-                                    block.setCollapsed(true);
-                                }
-                            });
-                        }
-                    } else {
-                        // Option to expand block.
-                        if (this.workspace.options.collapse) {
-                            menuOptions.push({
-                                text: Blockly.Msg['EXPAND_BLOCK'],
-                                enabled: true,
-                                callback: function () {
-                                    block.setCollapsed(false);
-                                }
-                            });
-                        }
+                        });
+                    }
+                } else {
+                    // Option to expand block.
+                    if (pxt.appTarget.appTheme.blocksCollapsing) {
+                        menuOptions.push({
+                            text: Blockly.Msg['EXPAND_BLOCK'],
+                            enabled: true,
+                            callback: function () {
+                                block.setCollapsed(false);
+                            }
+                        });
                     }
                 }
 
