@@ -466,7 +466,7 @@ export class ProjectView
             this.setFile(f)
         }
 
-        pxt.Util.setEditorLanguagePref("js");
+        pxt.shell.setEditorLanguagePref("js");
     }
 
     openBlocks() {
@@ -607,7 +607,7 @@ export class ProjectView
                 })
                 .then(() => {
                     // on success, update editor pref
-                    pxt.Util.setEditorLanguagePref("py");
+                    pxt.shell.setEditorLanguagePref("py");
                 }, e => {
                     pxt.reportException(e);
                     core.errorNotification(lf("Oops, something went wrong trying to convert your code."));
@@ -1377,7 +1377,7 @@ export class ProjectView
             })
             .catch(e => {
                 // Failed to decompile
-                pxt.tickEvent('tutorial.faileddecompile', { tutorialId: t.tutorial });
+                pxt.tickEvent('tutorial.faileddecompile', { tutorial: t.tutorial });
                 core.errorNotification(lf("Oops, an error occured as we were loading the tutorial."));
                 // Reset state (delete the current project and exit the tutorial)
                 this.exitTutorial(true);
@@ -1848,8 +1848,8 @@ export class ProjectView
     saveProjectToFileAsync(): Promise<void> {
         const mpkg = pkg.mainPkg;
         if (saveAsBlocks()) {
-            pxt.BrowserUtils.browserDownloadText(mpkg.readFile("main.blocks"), pkg.genFileName(".blocks"), 'application/xml');
-            return Promise.resolve();;
+            pxt.BrowserUtils.browserDownloadText(mpkg.readFile("main.blocks"), pkg.genFileName(".blocks"), { contentType: 'application/xml' });
+            return Promise.resolve();
         }
         if (pxt.commands.saveProjectAsync) {
             core.infoNotification(lf("Saving..."))
@@ -1861,7 +1861,7 @@ export class ProjectView
         else return this.exportProjectToFileAsync()
             .then((buf: Uint8Array) => {
                 const fn = pkg.genFileName(".mkcd");
-                pxt.BrowserUtils.browserDownloadUInt8Array(buf, fn, 'application/octet-stream');
+                pxt.BrowserUtils.browserDownloadUInt8Array(buf, fn, { contentType: 'application/octet-stream' });
             })
     }
 
@@ -2082,14 +2082,12 @@ export class ProjectView
         }
         if (options.tutorial && options.tutorial.metadata) {
             if (options.tutorial.metadata.codeStart) {
-                let codeStart = "_onCodeStart.ts";
-                files[codeStart] = "control._onCodeStart('" + pxt.U.htmlEscape(options.tutorial.metadata.codeStart) + "')";
-                cfg.files.splice(cfg.files.indexOf("main.ts"), 0, codeStart);
+                files[pxt.TUTORIAL_CODE_START] = `control._onCodeStart('${pxt.U.htmlEscape(options.tutorial.metadata.codeStart)}')`;
+                cfg.files.splice(cfg.files.indexOf("main.ts"), 0, pxt.TUTORIAL_CODE_START);
             }
             if (options.tutorial.metadata.codeStop) {
-                let codeStop = "_onCodeStop.ts";
-                files[codeStop] = "control._onCodeStop('" + pxt.U.htmlEscape(options.tutorial.metadata.codeStop) + "')";
-                cfg.files.push(codeStop);
+                files[pxt.TUTORIAL_CODE_STOP] = `control._onCodeStop('${pxt.U.htmlEscape(options.tutorial.metadata.codeStop)}')`;
+                cfg.files.push(pxt.TUTORIAL_CODE_STOP);
             }
         }
         files[pxt.CONFIG_NAME] = pxt.Package.stringifyConfig(cfg);
@@ -2238,7 +2236,7 @@ export class ProjectView
                         hasCloseIcon: true,
                     }).then(b => {
                         if (this.isPythonActive()) {
-                            pxt.Util.setEditorLanguagePref("py"); // stay in python, else go to blocks
+                            pxt.shell.setEditorLanguagePref("py"); // stay in python, else go to blocks
                         }
                     })
                 }
@@ -2752,7 +2750,7 @@ export class ProjectView
             const editorId = this.editor ? this.editor.getId().replace(/Editor$/, '') : "unknown";
             if (opts.background) {
                 pxt.tickActivity("autorun", "autorun." + editorId);
-                if (localStorage.getItem("noAutoRun"))
+                if (pxt.storage.getLocal("noAutoRun"))
                     return Promise.resolve()
             } else pxt.tickEvent(opts.debug ? "debug" : "run", { editor: editorId });
 
@@ -3237,7 +3235,7 @@ export class ProjectView
                     return processMarkdown(md);
                 });
         } else if (scriptId) {
-            pxt.tickEvent("tutorial.shared");
+            pxt.tickEvent("tutorial.shared", { tutorial: scriptId });
             p = workspace.downloadFilesByIdAsync(scriptId)
                 .then(files => {
                     const pxtJson = pxt.Package.parseAndValidConfig(files["pxt.json"]);
@@ -3349,6 +3347,12 @@ export class ProjectView
     }
 
     private startTutorialAsync(tutorialId: string, tutorialTitle?: string, recipe?: boolean, editorProjectName?: string): Promise<void> {
+        // custom tick for recipe "completion". recipes use links in the markdown to
+        // progress, so we track when a user "exits" a recipe by loading a new one
+        if (this.state.header?.tutorial?.tutorialRecipe) {
+            pxt.tickEvent("recipe.exit", { tutorial: this.state.header?.tutorial?.tutorial, goto: tutorialId });
+        }
+
         core.hideDialog();
         core.showLoading("tutorial", lf("starting tutorial..."));
         sounds.initTutorial(); // pre load sounds
@@ -3391,19 +3395,24 @@ export class ProjectView
     }
 
     startActivity(activity: pxt.editor.Activity, path: string, title?: string, editorProjectName?: string) {
-        pxt.tickEvent(activity + ".start", { editor: editorProjectName });
         switch (activity) {
             case "tutorial":
-                this.startTutorialAsync(path, title, false, editorProjectName); break;
+                pxt.tickEvent("tutorial.start", { tutorial: path, editor: editorProjectName });
+                this.startTutorialAsync(path, title, false, editorProjectName);
+                break;
             case "recipe":
-                this.startTutorialAsync(path, title, true, editorProjectName); break;
+                pxt.tickEvent("recipe.start", { recipe: path, editor: editorProjectName });
+                this.startTutorialAsync(path, title, true, editorProjectName);
+                break;
             case "example":
-                this.importExampleAsync({ name, path, loadBlocks: false, preferredEditor: editorProjectName }); break;
+                pxt.tickEvent("example.start", { example: path, editor: editorProjectName });
+                this.importExampleAsync({ name, path, loadBlocks: false, preferredEditor: editorProjectName });
+                break;
         }
     }
 
     completeTutorialAsync(): Promise<void> {
-        pxt.tickEvent("tutorial.complete");
+        pxt.tickEvent("tutorial.complete", { tutorial: this.state.header?.tutorial?.tutorial });
         core.showLoading("leavingtutorial", lf("leaving tutorial..."));
 
         // clear tutorial field
@@ -3446,7 +3455,7 @@ export class ProjectView
     }
 
     exitTutorial(removeProject?: boolean) {
-        pxt.tickEvent("tutorial.exit");
+        pxt.tickEvent("tutorial.exit", { tutorial: this.state.header?.tutorial?.tutorial });
         core.showLoading("leavingtutorial", lf("leaving tutorial..."));
         const tutorial = this.state.header && this.state.header.tutorial;
         const stayInEditor = tutorial && !!tutorial.tutorialRecipe;
@@ -4287,7 +4296,6 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    pxt.setCompileSwitches(window.localStorage["compile"])
     pxt.setCompileSwitches(query["compiler"] || query["compile"])
 
     // github token set in cloud provider

@@ -359,10 +359,12 @@ namespace pxt.runner {
 
                     let fnArgs = resp.usedArguments;
                     let board = pxt.appTarget.simulator.boardDefinition;
-                    let parts = pxtc.computeUsedParts(resp, true);
+                    let parts = pxtc.computeUsedParts(resp, "ignorebuiltin");
+                    const usedBuiltinParts = pxtc.computeUsedParts(resp, "onlybuiltin");
                     let runOptions: pxsim.SimulatorRunOptions = {
                         boardDefinition: board,
                         parts: parts,
+                        builtinParts: usedBuiltinParts,
                         fnArgs: fnArgs,
                         cdnUrl: pxt.webConfig.commitCdnUrl,
                         localizedStrings: Util.getLocalizedStrings(),
@@ -719,19 +721,20 @@ ${linkString}
             .then(summary => {
                 toc = pxt.docs.buildTOC(summary);
                 pxt.log(`TOC: ${JSON.stringify(toc, null, 2)}`)
-                const tocsp: Promise<void>[] = [];
+                const tocsp: TOCMenuEntry[] = [];
                 pxt.docs.visitTOC(toc, entry => {
-                    if (!/^\//.test(entry.path) || /^\/pkg\//.test(entry.path)) return;
-                    tocsp.push(
-                        pxt.Cloud.markdownAsync(entry.path)
-                            .then(md => {
-                                entry.markdown = md;
-                            }, e => {
-                                entry.markdown = `_${entry.path} failed to load._`;
-                            })
-                    )
+                    if (/^\//.test(entry.path) && !/^\/pkg\//.test(entry.path))
+                        tocsp.push(entry);
                 });
-                return Promise.all(tocsp);
+
+                return U.promisePoolAsync(4, tocsp, async entry => {
+                    try {
+                        const md = await pxt.Cloud.markdownAsync(entry.path);
+                        entry.markdown = md;
+                    } catch (e) {
+                        entry.markdown = `_${entry.path} failed to load._`;
+                    }
+                });
             })
             .then(pages => {
                 let md = toc[0].name;
@@ -789,6 +792,10 @@ ${linkString}
             @BODY@
         </div>
     </div>
+</aside>
+
+<aside id=codecard class=box>
+    <pre><code class="lang-codecard">@BODY@</code></pre>
 </aside>
 
 <aside id=tutorialhint class=box>

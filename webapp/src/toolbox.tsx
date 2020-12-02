@@ -5,6 +5,7 @@ import * as data from "./data"
 import * as editor from "./toolboxeditor"
 import * as sui from "./sui"
 import * as core from "./core"
+import * as coretsx from "./coretsx";
 
 import Util = pxt.Util;
 
@@ -127,7 +128,7 @@ export class Toolbox extends data.Component<ToolboxProps, ToolboxState> {
             visible: false,
             loading: false,
             showAdvanced: false,
-            shouldAnimate: !Util.getToolboxAnimation()
+            shouldAnimate: !pxt.shell.getToolboxAnimation()
         }
 
         this.setSelection = this.setSelection.bind(this);
@@ -270,7 +271,7 @@ export class Toolbox extends data.Component<ToolboxProps, ToolboxState> {
         if ((this.props.editorname == MONACO_EDITOR_NAME && props.editorname != MONACO_EDITOR_NAME)
             || (props.editorname == MONACO_EDITOR_NAME && props.parent.parent.state.fullscreen)
             && this.state.shouldAnimate) {
-            Util.setToolboxAnimation();
+            pxt.shell.setToolboxAnimation();
             this.setState({ shouldAnimate: false });
         }
     }
@@ -302,7 +303,7 @@ export class Toolbox extends data.Component<ToolboxProps, ToolboxState> {
 
     componentWillUnmount() {
         if (this.props.editorname == MONACO_EDITOR_NAME) {
-            Util.setToolboxAnimation();
+            pxt.shell.setToolboxAnimation();
         }
     }
 
@@ -534,7 +535,7 @@ export class CategoryItem extends data.Component<CategoryItemProps, CategoryItem
         const { toolbox } = this.props;
         if (this.state.selected) {
             this.props.toolbox.setSelectedItem(this);
-            if (!toolbox.state.focusSearch) this.focusElement();
+            if (!toolbox.state.focusSearch && !coretsx.dialogIsShowing()) this.focusElement();
         }
     }
 
