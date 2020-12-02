@@ -4514,9 +4514,6 @@ document.addEventListener("DOMContentLoaded", () => {
     pxt.docs.requireMarked = () => require("marked");
     const importHex = (hex: pxt.cpp.HexFile, options?: pxt.editor.ImportFileOptions) => theEditor.importHex(hex, options);
 
-    const hm = /^(https:\/\/[^/]+)/.exec(window.location.href)
-    if (hm) Cloud.apiRoot = hm[1] + "/api/"
-
     if (query["hw"]) {
         pxt.setHwVariant(query["hw"])
         pxt.tickEvent("projects.choosehwvariant", {

@@ -139,6 +139,10 @@ namespace pxt {
     }
 
     export function initAnalyticsAsync() {
+        if (isIFrame()) {
+            return;
+        }
+
         if (isNotHosted()) {
             initializeAppInsightsInternal(false);
             return;

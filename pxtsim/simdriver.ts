@@ -95,6 +95,7 @@ namespace pxsim {
                 this._allowedOrigins.push(simUrl.origin)
             } catch (e) {
                 console.error(`Invalid sim url ${this.getSimUrl()}`)
+                console.error(e);
             }
         }
 
