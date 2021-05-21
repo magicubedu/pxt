@@ -1776,7 +1776,9 @@ namespace pxt.blocks {
                             element.removeAttribute("deletable");
                             element.removeAttribute("movable");
                             element.removeAttribute("editable");
-                            element.removeAttribute("id");
+                            if (element.localName !== "arg") {
+                                element.removeAttribute("id");
+                            }
                         });
                         xmlRoot.querySelectorAll("comment").forEach(element => {
                             element.removeAttribute("h");
@@ -1817,7 +1819,7 @@ namespace pxt.blocks {
                                 if (validateBlocklyElement(blocklyElement) === false) {
                                     throw new Error("INVALID_INPUT");
                                 }
-                                Blockly.Xml.domToWorkspace(blocklyElement, this);
+                                pxt.blocks.domToWorkspaceNoEvents(blocklyElement, this);
                                 resolve();
                             }));
                         }
