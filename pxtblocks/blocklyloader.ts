@@ -1819,7 +1819,7 @@ namespace pxt.blocks {
                                 if (validateBlocklyElement(blocklyElement) === false) {
                                     throw new Error("INVALID_INPUT");
                                 }
-                                pxt.blocks.domToWorkspaceNoEvents(blocklyElement, this);
+                                Blockly.Xml.domToWorkspace(blocklyElement, this);
                                 resolve();
                             }));
                         }
