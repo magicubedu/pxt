@@ -71,6 +71,8 @@ namespace pxt.blocks {
     // undetermined as of yet, the type of the variable becomes the expected type.
 
     export class Point {
+        public isTypeInferred = false;
+
         constructor(
             public link: Point,
             public type: string,
@@ -463,7 +465,8 @@ namespace pxt.blocks {
                             try {
                                 union(p1, tr);
                             } catch (e) {
-                                if (!tr.isArrayType) {
+                                if (!p1.isTypeInferred && !tr.isArrayType) {
+                                    p1.isTypeInferred = true;
                                     p1.link = tr;
                                 }
                                 // TypeScript should catch this error and bubble it up
