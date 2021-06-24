@@ -463,6 +463,9 @@ namespace pxt.blocks {
                             try {
                                 union(p1, tr);
                             } catch (e) {
+                                if (!tr.isArrayType) {
+                                    p1.link = tr;
+                                }
                                 // TypeScript should catch this error and bubble it up
                             }
                         }
@@ -1199,7 +1202,7 @@ namespace pxt.blocks {
 
             if (declaredType) {
                 const expressionType = getConcreteType(returnType(e, bExpr));
-                if (declaredType.type !== expressionType.type) {
+                if (expressionType.type === null) {
                     bindString = `let ${binding.escapedName}: ${declaredType.type} = `;
                 }
             }
