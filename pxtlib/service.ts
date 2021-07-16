@@ -1640,6 +1640,7 @@ namespace ts.pxtc.service {
         snippet?: SnippetOptions;
         runtime?: pxt.RuntimeOptions;
         light?: boolean; // in light mode?
+        generatedVarDeclarations?: pxt.Map<pxt.blocks.VarDeclaration>;
     }
 
     export interface SnippetOptions {
