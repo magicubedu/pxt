@@ -728,11 +728,7 @@ namespace ts.pxtc {
 
             if (nsDoc) {
                 // Check for "friendly namespace"
-                if (fn.attributes.block) {
-                    fn.attributes.block = locBlock || fn.attributes.block;
-                } else {
-                    fn.attributes.block = nsDoc;
-                }
+                fn.attributes.block = locBlock ?? nsDoc;
                 updateBlockDef(fn.attributes);
             } else if (fn.attributes.block && locBlock) {
                 const ps = pxt.blocks.compileInfo(fn);
