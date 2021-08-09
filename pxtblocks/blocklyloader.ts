@@ -1385,7 +1385,7 @@ namespace pxt.blocks {
         }
     }
 
-    // tslint:disable-next-line:no-var-keyword
+    // eslint-disable-next-line no-var
     export var onShowContextMenu: (workspace: Blockly.Workspace,
         items: Blockly.ContextMenu.Option[]) => void = undefined;
 
@@ -1393,10 +1393,21 @@ namespace pxt.blocks {
         ts?: string;
         blocks?: string;
     }
-    // tslint:disable-next-line:no-var-keyword
+    // eslint-disable-next-line no-var
     export var blockCopyHandler: (content: BlockContent) => void = blockCopyHandler;
-    // tslint:disable-next-line:no-var-keyword
+    // eslint-disable-next-line no-var
     export var blockPasteHandler: (pasteToMakeCode: ((content: BlockContent) => Promise<void>)) => void = blockPasteHandler;
+    // eslint-disable-next-line no-var
+    export var importBlocks = (content: BlockContent) => addBlocksToWorkspace(Blockly.getMainWorkspace(), content);
+
+    const addBlocksToWorkspace = (ws: Blockly.Workspace, content: BlockContent) => new Promise<void>(resolve => {
+        const blocklyElement = content.blocks !== undefined ? Blockly.Xml.textToDom(content.blocks) : null;
+        if (blocklyElement === null || blocklyElement.localName !== "xml") {
+            throw new Error("INVALID_INPUT");
+        }
+        Blockly.Xml.domToWorkspace(blocklyElement, ws);
+        resolve();
+    });
 
     /**
      * The following patch to blockly is to add the Trash icon on top of the toolbox,
@@ -1493,7 +1504,6 @@ namespace pxt.blocks {
             if (!this.workspace.rendered) {
                 throw TypeError('Workspace is headless.');
             }
-            // tslint:disable-next-line: no-conditional-assignment
             for (let i = 0, input; (input = this.inputList[i]); i++) {
                 input.init();
             }
@@ -1530,21 +1540,21 @@ namespace pxt.blocks {
                 menuOptions.push({
                     text: lf("Export"),
                     enabled: true,
-                    callback: async () => {
+                    callback: () => {
                         const blockInDom = Blockly.Xml.blockToDom(block, true);
                         Blockly.Xml.deleteNext(blockInDom);
                         const xmlRoot = document.createElementNS("https://developers.google.com/blockly/xml", "xml");
                         xmlRoot.appendChild(blockInDom);
-                        xmlRoot.querySelectorAll("*").forEach(element => {
+                        for (const element of xmlRoot.querySelectorAll("*")) {
                             element.removeAttribute("deletable");
                             element.removeAttribute("movable");
                             element.removeAttribute("editable");
                             element.removeAttribute("id");
-                        });
-                        xmlRoot.querySelectorAll("comment").forEach(element => {
+                        }
+                        for (const element of xmlRoot.querySelectorAll("comment")) {
                             element.removeAttribute("h");
                             element.removeAttribute("w");
-                        });
+                        }
                         blockCopyHandler({
                             blocks: Blockly.Xml.domToText(xmlRoot)
                         });
@@ -1767,21 +1777,21 @@ namespace pxt.blocks {
                 options.push({
                     text: lf("Export All Blocks"),
                     enabled: true,
-                    callback: async () => {
+                    callback: () => {
                         const xmlRoot = Blockly.Xml.workspaceToDom(this, true);
-                        xmlRoot.querySelectorAll("*").forEach(element => {
+                        for (const element of xmlRoot.querySelectorAll("*")) {
                             element.removeAttribute("deletable");
                             element.removeAttribute("movable");
                             element.removeAttribute("editable");
                             if (element.localName !== "arg") {
                                 element.removeAttribute("id");
                             }
-                        });
-                        xmlRoot.querySelectorAll("comment").forEach(element => {
+                        }
+                        for (const element of xmlRoot.querySelectorAll("comment")) {
                             element.removeAttribute("h");
                             element.removeAttribute("w");
-                        });
-                        const children = Array.from(xmlRoot.children).sort((a, b) => {
+                        }
+                        const children = [...xmlRoot.children].sort((a, b) => {
                             if (a.localName === "block" && a.localName === b.localName) {
                                 const aType = a.getAttribute("type");
                                 const bType = b.getAttribute("type");
@@ -1806,20 +1816,7 @@ namespace pxt.blocks {
                     options.push({
                         text: lf("Import"),
                         enabled: true,
-                        callback: () => {
-                            blockPasteHandler(content => new Promise(async (resolve, reject) => {
-                                const validateBlocklyElement = (e: Element | null) => e !== null && e.localName === "xml";
-                                let blocklyElement: Element = null;
-                                if (content.blocks !== undefined) {
-                                    blocklyElement = Blockly.Xml.textToDom(content.blocks);
-                                }
-                                if (validateBlocklyElement(blocklyElement) === false) {
-                                    throw new Error("INVALID_INPUT");
-                                }
-                                Blockly.Xml.domToWorkspace(blocklyElement, this);
-                                resolve();
-                            }));
-                        }
+                        callback: () => blockPasteHandler(content => addBlocksToWorkspace(this, content))
                     });
                 }
 
