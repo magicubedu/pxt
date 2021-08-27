@@ -1,9 +1,6 @@
 (function() {
     if (window.ksRunnerInit) return;
 
-    // This line gets patched up by the cloud
-    var pxtConfig = null;
-
     var scripts = [
         "/blb/highlight.js/highlight.pack.js",
         "/blb/marked/marked.min.js",
@@ -26,7 +23,7 @@
 
     window.ksRunnerWhenLoaded = function() {
         pxt.docs.requireHighlightJs = function() { return hljs; }
-        pxt.setupWebConfig(pxtConfig || window.pxtWebConfig)
+        pxt.setupWebConfig(window.pxtConfig)
         pxt.runner.initCallbacks = pxtCallbacks
         pxtCallbacks.push(function() {
             pxtCallbacks = null
