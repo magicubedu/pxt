@@ -1550,6 +1550,7 @@ namespace pxt.blocks {
                             element.removeAttribute("movable");
                             element.removeAttribute("editable");
                             element.removeAttribute("id");
+                            element.removeAttribute("disabled");
                         }
                         for (const element of xmlRoot.querySelectorAll("comment")) {
                             element.removeAttribute("h");
