@@ -1345,7 +1345,11 @@ namespace ts.pxtc.Util {
             if (!translations) {
                 translations = {};
             }
-            Object.keys(tr)
+            const keys = Object.keys(tr);
+            if (keys.length === 0) {
+                throw new Error();
+            }
+            keys
                 .filter(k => !!tr[k])
                 .forEach(k => translations[k] = tr[k])
         }
@@ -1354,8 +1358,11 @@ namespace ts.pxtc.Util {
             let errorCount = 0;
 
             const pAll = U.promiseMapAllSeries(stringFiles, (file) => downloadLiveTranslationsAsync(code, file.path, file.branch)
-                .then(mergeTranslations, e => {
-                    console.log(e.message);
+                .then(mergeTranslations)
+                .catch(e => {
+                    if (e.message) {
+                        console.log(e.message);
+                    }
                     ++errorCount;
                 })
             );
