@@ -1580,6 +1580,8 @@ namespace pxt.blocks {
             weight: 1
         });
 
+        (Blockly as any).ContextMenuRegistry.registry.unregister("blockHelp");
+
         // c.f. https://github.com/microsoft/pxt-blockly/blob/v4.0.15/core/block_svg.js#L831
         Blockly.BlockSvg.prototype.generateContextMenu = function() {
             if (!this.contextMenu) {
