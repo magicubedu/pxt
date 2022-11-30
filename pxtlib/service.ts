@@ -1663,8 +1663,9 @@ namespace ts.pxtc.service {
 
 
     export enum ExtensionType {
-        Bundled,
-        Github
+        Bundled = 1,
+        Github = 2,
+        ShareScript = 3,
     }
 
     export interface ExtensionMeta {
@@ -1673,12 +1674,12 @@ namespace ts.pxtc.service {
         description?: string,
         imageUrl?: string,
         type?: ExtensionType
+        learnMoreUrl?: string;
 
         pkgConfig?: pxt.PackageConfig; // Added if the type is Bundled
         repo?: pxt.github.GitRepo; //Added if the type is Github VVN TODO ADD THIS
-        learnMoreUrl?: string;
+        scriptInfo?: pxt.Cloud.JsonScript
     }
-
 
     export interface SearchInfo {
         id: string;
