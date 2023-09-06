@@ -1050,13 +1050,24 @@ namespace pxt {
                     // there's no way for the translation to be saved with a block. To work around this, we copy the
                     // translations to the editor translations.
                     const strings = U.getLocalizedStrings();
-                    Object.keys(loc).forEach((l) => {
-                        if (U.startsWith(l, "{id:subcategory}") || U.startsWith(l, "{id:group}")) {
-                            if (!strings[l]) {
-                                strings[l] = loc[l];
+                    const copyTranslations = (map: Map<string>, keys?: string[]) => {
+                        for (const l of keys ?? Object.keys(map)) {
+                            if (U.startsWith(l, "{id:subcategory}") || U.startsWith(l, "{id:group}")) {
+                                if (!strings[l]) {
+                                    strings[l] = map[l];
+                                }
                             }
                         }
-                    });
+                    };
+                    const locKeys = Object.keys(loc);
+                    if (locKeys.length === 0) {
+                        if (ts.pxtc.apiLocalizationStrings) {
+                            copyTranslations(ts.pxtc.apiLocalizationStrings);
+                        }
+                    }
+                    else {
+                        copyTranslations(loc, locKeys);
+                    }
                     U.setLocalizedStrings(strings);
 
                     return Promise.resolve(loc);

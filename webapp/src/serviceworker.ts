@@ -27,7 +27,6 @@ enum DisconnectResponse {
     TimedOut
 }
 
-initWebappServiceWorker();
 initWebUSB();
 
 function initWebappServiceWorker() {

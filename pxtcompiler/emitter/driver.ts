@@ -288,7 +288,7 @@ namespace ts.pxtc {
         return res
     }
 
-    export function decompile(program: Program, opts: CompileOptions, fileName: string, includeGreyBlockMessages = false) {
+    export function decompile(program: Program, opts: CompileOptions, fileName: string, includeGreyBlockMessages = false, generatedVarDeclarations?: pxt.Map<pxt.blocks.VarDeclaration>) {
         let file = program.getSourceFile(fileName);
         annotate(program, fileName, target || (pxt.appTarget && pxt.appTarget.compile));
         const apis = getApiInfo(program, opts.jres);
@@ -297,6 +297,7 @@ namespace ts.pxtc {
             snippetMode: opts.snippetMode || false,
             alwaysEmitOnStart: opts.alwaysDecompileOnStart,
             includeGreyBlockMessages,
+            generatedVarDeclarations: generatedVarDeclarations,
             generateSourceMap: opts.generateSourceMap !== undefined ? opts.generateSourceMap : !!opts.ast,
             allowedArgumentTypes: opts.allowedArgumentTypes || ["number", "boolean", "string"],
             errorOnGreyBlocks: !!opts.errorOnGreyBlocks

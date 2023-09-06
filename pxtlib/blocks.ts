@@ -81,6 +81,11 @@ namespace pxt.blocks {
         "Math.max": { blockId: "math_op2", params: ["x", "y"] }
     };
 
+    export interface VarDeclaration {
+        type?: string;
+        value: string;
+    }
+
     export function normalizeBlock(b: string, err: (msg: string) => void = pxt.log): string {
         if (!b) return b;
         // normalize and validate common errors

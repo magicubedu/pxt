@@ -977,6 +977,19 @@ namespace pxt.blocks {
 
         (<any>Blockly).Constants.ADD_START_HATS = !!pxt.appTarget.appTheme.blockHats;
 
+        const localizedString = Util.getLocalizedStrings();
+        switch (Util.userLanguage()) {
+            case "zh-TW":
+                localizedString["Export"] = "匯出";
+                localizedString["Export All Blocks"] = "匯出所有積木";
+                break;
+            case "zh-CN":
+                localizedString["Export"] = "导出";
+                localizedString["Export All Blocks"] = "导出所有方块";
+                break;
+        }
+        Util.setLocalizedStrings(localizedString);
+
         initFieldEditors();
         initContextMenu();
         initOnStart();
@@ -1434,8 +1447,29 @@ namespace pxt.blocks {
         }
     }
 
-    export let onShowContextMenu: (workspace: Blockly.Workspace,
+    // eslint-disable-next-line no-var
+    export var onShowContextMenu: (workspace: Blockly.Workspace,
         items: Blockly.ContextMenu.Option[]) => void = undefined;
+
+    export interface BlockContent {
+        ts?: string;
+        blocks?: string;
+    }
+    // eslint-disable-next-line no-var
+    export var blockCopyHandler: (content: BlockContent) => void = blockCopyHandler;
+    // eslint-disable-next-line no-var
+    export var blockPasteHandler: (pasteToMakeCode: ((content: BlockContent) => Promise<void>)) => void = blockPasteHandler;
+    // eslint-disable-next-line no-var
+    export var importBlocks = (content: BlockContent) => addBlocksToWorkspace(Blockly.getMainWorkspace(), content);
+
+    const addBlocksToWorkspace = (ws: Blockly.Workspace, content: BlockContent) => new Promise<void>(resolve => {
+        const blocklyElement = content.blocks !== undefined ? Blockly.Xml.textToDom(content.blocks) : null;
+        if (blocklyElement === null || blocklyElement.localName !== "xml") {
+            throw new Error("INVALID_INPUT");
+        }
+        Blockly.Xml.domToWorkspace(blocklyElement, ws);
+        resolve();
+    });
 
     /**
      * The following patch to blockly is to add the Trash icon on top of the toolbox,
@@ -1526,71 +1560,147 @@ namespace pxt.blocks {
             if (url) (pxt.blocks.openHelpUrl || window.open)(url);
         };
 
-        // Use Blockly hook to customize context menu
-        (<any>Blockly).WorkspaceSvg.prototype.configureContextMenu = function (options: Blockly.ContextMenu.Option[], e: any) {
-            if (this.options.readOnly || this.isFlyout) {
+        // https://github.com/microsoft/pxt-blockly/blob/v4.0.15/core/block_svg.js#L221
+        Blockly.BlockSvg.prototype.initSvg = function () {
+            if (!this.workspace.rendered) {
+                throw TypeError('Workspace is headless.');
+            }
+            for (let i = 0, input; (input = this.inputList[i]); i++) {
+                input.init();
+            }
+            const icons = this.getIcons();
+            for (let i = 0; i < icons.length; i++) {
+                icons[i].createIcon();
+            }
+            this.applyColour();
+            this.pathObject.updateMovable(this.isMovable());
+            const svg = this.getSvgRoot();
+            if (!this.eventsInit_ && svg) {
+                Blockly.bindEventWithChecks_(
+                    svg, 'mousedown', this, this.onMouseDown_);
+            }
+            this.eventsInit_ = true;
+
+            if (!svg.parentNode) {
+                this.workspace.getCanvas().appendChild(svg);
+            }
+        };
+
+        // c.f. https://github.com/microsoft/pxt-blockly/blob/v4.0.15/core/contextmenu_items.js
+        (Blockly as any).ContextMenuRegistry.registry.register({
+            displayText: () => lf("Export"),
+            preconditionFn: () => blockCopyHandler !== undefined ? "enabled" : "disabled",
+            callback: (scope: any) => {
+                const block = scope.block;
+                const blockInDom = Blockly.Xml.blockToDom(block, true);
+                Blockly.Xml.deleteNext(blockInDom);
+                const xmlRoot = document.createElementNS("https://developers.google.com/blockly/xml", "xml");
+                xmlRoot.appendChild(blockInDom);
+                for (const element of xmlRoot.querySelectorAll("*")) {
+                    element.removeAttribute("deletable");
+                    element.removeAttribute("movable");
+                    element.removeAttribute("editable");
+                    element.removeAttribute("id");
+                    element.removeAttribute("disabled");
+                }
+                for (const element of xmlRoot.querySelectorAll("comment")) {
+                    element.removeAttribute("h");
+                    element.removeAttribute("w");
+                }
+                blockCopyHandler({
+                    blocks: Blockly.Xml.domToText(xmlRoot)
+                });
+            },
+            scopeType: (Blockly as any).ContextMenuRegistry.ScopeType.BLOCK,
+            id: "blockExport",
+            weight: 1
+        });
+
+        (Blockly as any).ContextMenuRegistry.registry.unregister("blockHelp");
+
+        // c.f. https://github.com/microsoft/pxt-blockly/blob/v4.0.15/core/block_svg.js#L831
+        Blockly.BlockSvg.prototype.generateContextMenu = function() {
+            if (!this.contextMenu) {
+                return null;
+            }
+            const menuOptions = (Blockly as any).ContextMenuRegistry.registry.getContextMenuOptions(
+                (Blockly as any).ContextMenuRegistry.ScopeType.BLOCK, {block: this});
+
+            // Allow the block to add or modify menuOptions.
+            if (this.customContextMenu) {
+                this.customContextMenu(menuOptions);
+            }
+
+            return menuOptions;
+        };
+
+        // c.f. https://github.com/microsoft/pxt-blockly/blob/v4.0.15/core/workspace_svg.js#L1930
+        // c.f. https://github.com/microsoft/pxt/blob/stable9.0/pxtblocks/blocklyloader.ts#L1530
+        Blockly.WorkspaceSvg.prototype.showContextMenu = function (e) {
+            if (this.isFlyout) {
                 return;
             }
 
-            // Clear default Blockly options
-            options.length = 0;
-            let topBlocks = this.getTopBlocks(true);
-            let eventGroup = Blockly.utils.genUid();
-            let topComments = this.getTopComments();
-            let ws = this;
-            const editable = !(this.options.debugMode || this.options.readOnly);
+            const options: Blockly.ContextMenu.Option[] = [];
+            const topBlocks = this.getTopBlocks(true);
+            const eventGroup = Blockly.utils.genUid();
+            const topComments = this.getTopComments();
+            const ws = this;
+            const editable = !this.options.debugMode;
 
-            // Option to add a workspace comment.
-            if (this.options.comments && !BrowserUtils.isIE()) {
-                const commentOption = Blockly.ContextMenu.workspaceCommentOption(ws, e) as any;
-                commentOption.enabled = commentOption.enabled && editable;
-                options.push(commentOption);
-            }
-
-
-            // Option to delete all blocks.
-            // Count the number of blocks that are deletable.
-            let deleteList = (Blockly.WorkspaceSvg as any).buildDeleteList_(topBlocks);
-            let deleteCount = 0;
-            for (let i = 0; i < deleteList.length; i++) {
-                if (!deleteList[i].isShadow()) {
-                    deleteCount++;
+            if (!this.options.readOnly) {
+                // Option to add a workspace comment.
+                if (this.options.comments && !BrowserUtils.isIE()) {
+                    const commentOption = Blockly.ContextMenu.workspaceCommentOption(ws, e) as any;
+                    commentOption.enabled = commentOption.enabled && editable;
+                    options.push(commentOption);
                 }
-            }
 
-            // Add a little animation to deleting.
-            const DELAY = 10;
-            function deleteNext() {
-                (<any>Blockly).Events.setGroup(eventGroup);
-                let block = deleteList.shift();
-                if (block) {
-                    if (block.workspace) {
-                        block.dispose(false, true);
-                        setTimeout(deleteNext, DELAY);
-                    } else {
-                        deleteNext();
+
+                // Option to delete all blocks.
+                // Count the number of blocks that are deletable.
+                let deleteList = (Blockly.WorkspaceSvg as any).buildDeleteList_(topBlocks);
+                let deleteCount = 0;
+                for (let i = 0; i < deleteList.length; i++) {
+                    if (!deleteList[i].isShadow()) {
+                        deleteCount++;
                     }
                 }
-                Blockly.Events.setGroup(false);
-            }
 
-            const deleteOption = {
-                text: deleteCount == 1 ? msg.DELETE_BLOCK : msg.DELETE_ALL_BLOCKS,
-                enabled: deleteCount > 0 && editable,
-                callback: () => {
-                    pxt.tickEvent("blocks.context.delete", undefined, { interactiveConsent: true });
-                    if (deleteCount < 2) {
-                        deleteNext();
-                    } else {
-                        Blockly.confirm(lf("Delete all {0} blocks?", deleteCount), (ok) => {
-                            if (ok) {
-                                deleteNext();
-                            }
-                        });
+                // Add a little animation to deleting.
+                const DELAY = 10;
+                function deleteNext() {
+                    (<any>Blockly).Events.setGroup(eventGroup);
+                    let block = deleteList.shift();
+                    if (block) {
+                        if (block.workspace) {
+                            block.dispose(false, true);
+                            setTimeout(deleteNext, DELAY);
+                        } else {
+                            deleteNext();
+                        }
+                    }
+                    Blockly.Events.setGroup(false);
+                }
+
+                const deleteOption = {
+                    text: deleteCount == 1 ? msg.DELETE_BLOCK : msg.DELETE_ALL_BLOCKS,
+                    enabled: deleteCount > 0 && editable,
+                    callback: () => {
+                        pxt.tickEvent("blocks.context.delete", undefined, { interactiveConsent: true });
+                        if (deleteCount < 2) {
+                            deleteNext();
+                        } else {
+                            Blockly.confirm(lf("Delete all {0} blocks?", deleteCount), (ok) => {
+                                if (ok) {
+                                    deleteNext();
+                                }
+                            });
+                        }
                     }
                 }
+                options.push(deleteOption);
             }
-            options.push(deleteOption);
 
             const formatCodeOption = {
                 text: lf("Format Code"),
@@ -1656,13 +1766,68 @@ namespace pxt.blocks {
                 });
             }
 
-            // custom options...
-            if (onShowContextMenu)
-                onShowContextMenu(this, options);
-        };
+            if (blockCopyHandler !== undefined) {
+                options.push({
+                    text: lf("Export All Blocks"),
+                    enabled: true,
+                    callback: () => {
+                        const xmlRoot = Blockly.Xml.workspaceToDom(this, true);
+                        for (const element of xmlRoot.querySelectorAll("*")) {
+                            element.removeAttribute("deletable");
+                            element.removeAttribute("movable");
+                            element.removeAttribute("editable");
+                            if (element.localName !== "arg") {
+                                element.removeAttribute("id");
+                            }
+                        }
+                        for (const element of xmlRoot.querySelectorAll("comment")) {
+                            element.removeAttribute("h");
+                            element.removeAttribute("w");
+                        }
+                        const children = [...xmlRoot.children].sort((a, b) => {
+                            if (a.localName === "block" && a.localName === b.localName) {
+                                const aType = a.getAttribute("type");
+                                const bType = b.getAttribute("type");
+                                if (aType !== bType) {
+                                    return aType === "function_definition" ? -1 : bType === "function_definition" ? 1 : 0;
+                                }
+                            }
+                            return 0;
+                        });
+                        for (const c of children) {
+                            xmlRoot.appendChild(c);
+                        }
+                        blockCopyHandler({
+                            blocks: Blockly.Xml.domToText(xmlRoot)
+                        });
+                    }
+                });
+            }
 
-        // Get rid of bumping behavior
-        (Blockly as any).Constants.Logic.LOGIC_COMPARE_ONCHANGE_MIXIN.onchange = function () { }
+            if (!this.options.readOnly) {
+                if (blockPasteHandler !== undefined) {
+                    options.push({
+                        text: lf("Import"),
+                        enabled: true,
+                        callback: () => blockPasteHandler(content => addBlocksToWorkspace(this, content))
+                    });
+                }
+
+                // custom options...
+                if (onShowContextMenu)
+                    onShowContextMenu(this, options);
+            }
+
+            // Get rid of bumping behavior
+            (Blockly as any).Constants.Logic.LOGIC_COMPARE_ONCHANGE_MIXIN.onchange = function () { }
+
+            // Allow the developer to add or modify menuOptions.
+            if (this.configureContextMenu) {
+                this.configureContextMenu(options);
+            }
+
+            Blockly.ContextMenu.show(e, options, this.RTL);
+        };
     }
 
     function initOnStart() {

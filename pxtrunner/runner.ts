@@ -674,7 +674,8 @@ namespace pxt.runner {
                     height: res?.height,
                     svg: res?.svg,
                     uri: png || res?.xml,
-                    css: res?.css
+                    css: res?.css,
+                    xml: isXml ? msg.code : result.compileBlocks.outfiles["main.blocks"]
                 }, "*");
             }
 
