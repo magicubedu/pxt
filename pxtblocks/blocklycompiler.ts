@@ -2441,6 +2441,13 @@ namespace pxt.blocks {
             }
         }
 
+        topBlocks.forEach(block => {
+            if (block.type === ts.pxtc.ON_START_TYPE) {
+                return;
+            }
+            trackVariables(block, topScope, e);
+        });
+
         for (const varName of Object.keys(topScope.declaredVars)) {
             const varInfo = topScope.declaredVars[varName];
             delete topScope.declaredVars[varName];
