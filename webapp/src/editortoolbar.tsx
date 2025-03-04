@@ -24,6 +24,80 @@ interface EditorToolbarState {
     compileState: "compiling" | "success" | null;
 }
 
+class JavascriptButton extends data.Component<ISettingsProps, {}> {
+    constructor(props: ISettingsProps) {
+        super(props);
+    }
+
+    protected onClick = (): void => {
+        pxt.tickEvent("menu.javascript", undefined, { interactiveConsent: true });
+        this.props.parent.openJavaScript();
+    }
+
+    protected isActive = (): boolean => {
+        return this.props.parent.isJavaScriptActive();
+    }
+
+    renderCore() {
+        return <sui.Button className="javascript-button" icon="xicon js" text="JavaScript" title={lf("Convert code to JavaScript")} onClick={this.onClick} disabled={this.isActive()} />
+    }
+}
+
+class PythonButton extends data.Component<ISettingsProps, {}> {
+    constructor(props: ISettingsProps) {
+        super(props);
+    }
+
+    protected onClick = (): void => {
+        pxt.tickEvent("menu.python", undefined, { interactiveConsent: true });
+        this.props.parent.openPython();
+    }
+
+    protected isActive = (): boolean => {
+        return this.props.parent.isPythonActive();
+    }
+
+    renderCore() {
+        return <sui.Button className="python-button" icon="xicon python" text="Python" title={lf("Convert code to Python")} onClick={this.onClick} disabled={this.isActive()} />
+    }
+}
+
+class BlocksButton extends data.Component<ISettingsProps, {}> {
+    constructor(props: ISettingsProps) {
+        super(props);
+    }
+
+    protected onClick = (): void => {
+        pxt.tickEvent("menu.blocks", undefined, { interactiveConsent: true });
+        this.props.parent.openBlocks();
+    }
+
+    protected isActive = (): boolean => {
+        return this.props.parent.isBlocksActive();
+    }
+
+    renderCore() {
+        return <sui.Button className="blocks-button" icon="xicon blocks" text={lf("Blocks")} title={lf("Convert code to Blocks")} onClick={this.onClick} disabled={this.isActive()} />
+    }
+}
+
+class EditorSelector extends data.Component<ISettingsProps, {}> {
+    constructor(props: ISettingsProps) {
+        super(props);
+    }
+
+    renderCore() {
+        const { parent } = this.props;
+        return (
+            <div className="ui green buttons">
+                <BlocksButton parent={parent} />
+                <JavascriptButton parent={parent} />
+                {pxt.appTarget.appTheme.python && <PythonButton parent={parent} />}
+            </div>
+        )
+    }
+}
+
 export class EditorToolbar extends data.Component<ISettingsProps, EditorToolbarState> {
     protected compileTimeout: number;
 
@@ -440,6 +514,7 @@ export class EditorToolbar extends data.Component<ISettingsProps, EditorToolbarS
                     </div>
                 </div>}
             <div id="editorToolbarArea" role="menubar" className="ui column items">
+                <EditorSelector parent={this.props.parent} />
                 {showUndoRedo && <div className="ui icon buttons">{this.getUndoRedo(computer)}</div>}
                 {showZoomControls && <div className="ui icon buttons mobile hide">{this.getZoomControl(computer)}</div>}
                 {targetTheme.bigRunButton && !pxt.shell.isTimeMachineEmbed() &&

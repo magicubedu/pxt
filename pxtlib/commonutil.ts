@@ -10,7 +10,6 @@ import pxtc = ts.pxtc
 namespace ts.pxtc.Util {
     export function assert(cond: boolean, msg = "Assertion failed") {
         if (!cond) {
-            debugger
             throw new Error(msg)
         }
     }
@@ -134,7 +133,16 @@ namespace ts.pxtc.Util {
     }
 
     export function setLocalizedStrings(strs: pxt.Map<string>) {
-        //_didSetlocalizations = true;
+        switch (userLanguage()) {
+            case "zh-TW":
+                _localizeStrings["Export"] = "匯出";
+                _localizeStrings["Export All Blocks"] = "匯出所有積木";
+                break;
+            case "zh-CN":
+                _localizeStrings["Export"] = "导出";
+                _localizeStrings["Export All Blocks"] = "导出所有方块";
+                break;
+        }
         _localizeStrings = strs;
     }
 

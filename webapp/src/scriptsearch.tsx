@@ -384,9 +384,9 @@ export class ScriptSearch extends data.Component<ISettingsProps, ScriptSearchSta
         const description = mode == ScriptSearchMode.Boards ? lf("Change development board")
             : mode == ScriptSearchMode.Experiments ? lf("Turn on and off experimental features")
                 : lf("Add an extension to the project");
-        const helpPath = mode == ScriptSearchMode.Boards ? "/boards"
-            : mode == ScriptSearchMode.Experiments ? "/experiments"
-                : "/extensions";
+        const helpPath = mode == ScriptSearchMode.Boards ? "./boards"
+            : mode == ScriptSearchMode.Experiments ? "./experiments"
+                : "./extensions";
 
         const experimentsChanged = mode == ScriptSearchMode.Experiments
             && experimentsState != experiments.state();
@@ -479,7 +479,7 @@ export class ScriptSearch extends data.Component<ISettingsProps, ScriptSearchSta
                                     imageUrl={pxt.github.repoIconUrl(scr)}
                                     label={pxt.isPkgBeta(scr) ? lf("Beta") : undefined}
                                     role="button"
-                                    learnMoreUrl={`/pkg/${scr.fullName}`}
+                                    learnMoreUrl={`./pkg/${scr.fullName}`}
                                 />
                             )}
                             {ghdata.data.filter(repo => repo.status != pxt.github.GitRepoStatus.Approved).map(scr =>
@@ -494,7 +494,7 @@ export class ScriptSearch extends data.Component<ISettingsProps, ScriptSearchSta
                                     label={pxt.isPkgBeta(scr) ? lf("Beta") : undefined}
                                     url={'github:' + scr.fullName}
                                     role="button"
-                                    learnMoreUrl={`/pkg/${scr.fullName}`}
+                                    learnMoreUrl={`./pkg/${scr.fullName}`}
                                 />
                             )}
                             {currentExperiments.map(experiment =>
