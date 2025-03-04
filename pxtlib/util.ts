@@ -210,7 +210,6 @@ namespace ts.pxtc.Util {
     }
 
     export function oops(msg = "OOPS"): Error {
-        debugger
         throw new Error(msg)
     }
 

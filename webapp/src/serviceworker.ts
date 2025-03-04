@@ -33,7 +33,6 @@ const pageUrl =  `@targetUrl@/` + ref;
 // pxtRelId is replaced with the commit hash for this release
 const refCacheName = "makecode;" + ref + ";@pxtRelId@";
 
-initWebappServiceWorker();
 initWebUSB();
 
 function initWebappServiceWorker() {
