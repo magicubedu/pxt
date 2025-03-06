@@ -602,6 +602,14 @@ function init(blockInfo: pxtc.BlocksInfo) {
     initText();
     initComments();
     initTooltip();
+
+    window.importBlocks = (content: BlockContent) => {
+        const blocklyElement = content.blocks !== undefined ? Blockly.utils.xml.textToDom(content.blocks) : null;
+        if (blocklyElement === null || blocklyElement.localName !== "xml") {
+            throw new Error("INVALID_INPUT");
+        }
+        Blockly.Xml.domToWorkspace(blocklyElement, Blockly.getMainWorkspace());
+    };
 }
 
 
