@@ -6,6 +6,7 @@ import { openHelpUrl } from "../external";
 export enum BlockContextWeight {
     Duplicate = 10,
     Copy = 15,
+    Export = 16,
     AddComment = 20,
     ExpandCollapse = 30,
     DeleteBlock = 40,
@@ -20,8 +21,8 @@ export function registerBlockitems() {
     Blockly.ContextMenuRegistry.registry.unregister("blockInline");
 
     registerDuplicate();
+    registerExport();
     registerCollapseExpandBlock();
-    registerHelp();
 
     // Fix the weights of the builtin options we do use
     // Defensiveness due to action changes in the keyboard navigation plugin.
@@ -150,4 +151,44 @@ function registerDuplicate() {
         associatedKeyboardShortcut: Blockly.ShortcutItems.names.DUPLICATE,
     };
     Blockly.ContextMenuRegistry.registry.register(duplicateOption);
+}
+
+function registerExport() {
+    const exportOption: Blockly.ContextMenuRegistry.RegistryItem = {
+        displayText() {
+            return lf("Export")
+        },
+        preconditionFn(scope: Blockly.ContextMenuRegistry.Scope) {
+            return window.blockCopyHandler ? "enabled" : "hidden";
+        },
+        callback(scope: Blockly.ContextMenuRegistry.Scope) {
+            if (!scope.block) return;
+
+            const data = scope.block.toCopyData();
+            console.log(data);
+
+            const blockInDom = Blockly.Xml.blockToDom(scope.block, true);
+            Blockly.Xml.deleteNext(blockInDom);
+            const xmlRoot = document.createElementNS("https://developers.google.com/blockly/xml", "xml");
+            xmlRoot.appendChild(blockInDom);
+            for (const element of xmlRoot.querySelectorAll("*")) {
+                element.removeAttribute("deletable");
+                element.removeAttribute("movable");
+                element.removeAttribute("editable");
+                element.removeAttribute("id");
+                element.removeAttribute("disabled");
+            }
+            for (const element of xmlRoot.querySelectorAll("comment")) {
+                element.removeAttribute("h");
+                element.removeAttribute("w");
+            }
+            window.blockCopyHandler({
+                blocks: Blockly.Xml.domToText(xmlRoot)
+            });
+        },
+        scopeType: Blockly.ContextMenuRegistry.ScopeType.BLOCK,
+        id: "blockExport",
+        weight: BlockContextWeight.Export,
+    };
+    Blockly.ContextMenuRegistry.registry.register(exportOption);
 }

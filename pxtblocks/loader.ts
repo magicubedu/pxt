@@ -703,6 +703,14 @@ function init(blockInfo: pxtc.BlocksInfo) {
     initTooltip();
     initAccessibilityMessages();
 
+    window.importBlocks = (content: BlockContent) => {
+        const blocklyElement = content.blocks !== undefined ? Blockly.utils.xml.textToDom(content.blocks) : null;
+        if (blocklyElement === null || blocklyElement.localName !== "xml") {
+            throw new Error("INVALID_INPUT");
+        }
+        Blockly.Xml.domToWorkspace(blocklyElement, Blockly.getMainWorkspace());
+    };
+
     // in safari on ios, Blockly isn't always great at clearing touch
     // identifiers. for most browsers this doesn't matter because the
     // pointer id stored in the pointerevent is reused. however, ios

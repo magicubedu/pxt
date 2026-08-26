@@ -11,7 +11,9 @@ export enum WorkspaceContextWeight {
     CollapseBlocks = 40,
     ExpandBlocks = 50,
     Snapshot = 60,
-    Find = 70
+    ExportAllBlocks = 70,
+    Import = 80,
+    Find = 90
 }
 
 export function registerWorkspaceItems() {
@@ -20,6 +22,8 @@ export function registerWorkspaceItems() {
     registerCollapseBlocks();
     registerExpandBlocks();
     registerDeleteAllBlocks();
+    registerExportAllBlocks();
+    registerImport();
     registerFind();
 
     // Unregister the builtin options that we don't use
@@ -292,4 +296,84 @@ function registerFind() {
         weight: WorkspaceContextWeight.Find,
     };
     Blockly.ContextMenuRegistry.registry.register(findOption);
+}
+
+function registerExportAllBlocks() {
+    const exportAllBlocksOption: Blockly.ContextMenuRegistry.RegistryItem = {
+        displayText() {
+            return pxt.U.lf("Export All Blocks")
+        },
+        preconditionFn(scope: Blockly.ContextMenuRegistry.Scope) {
+            return window.blockCopyHandler ? "enabled" : "hidden";
+        },
+        callback(scope: Blockly.ContextMenuRegistry.Scope) {
+            if (!scope.workspace) return;
+
+            const xmlRoot = Blockly.Xml.workspaceToDom(scope.workspace, true);
+            for (const element of xmlRoot.querySelectorAll("*")) {
+                element.removeAttribute("deletable");
+                element.removeAttribute("movable");
+                element.removeAttribute("editable");
+                if (element.localName !== "arg") {
+                    element.removeAttribute("id");
+                }
+            }
+            for (const element of xmlRoot.querySelectorAll("comment")) {
+                element.removeAttribute("h");
+                element.removeAttribute("w");
+            }
+            const children = [...xmlRoot.children].sort((a, b) => {
+                if (a.localName === "block" && a.localName === b.localName) {
+                    const aType = a.getAttribute("type");
+                    const bType = b.getAttribute("type");
+                    if (aType !== bType) {
+                        return aType === "function_definition" ? -1 : bType === "function_definition" ? 1 : 0;
+                    }
+                }
+                return 0;
+            });
+            for (const child of children) {
+                xmlRoot.appendChild(child);
+            }
+            window.blockCopyHandler({
+                blocks: Blockly.Xml.domToText(xmlRoot)
+            });
+        },
+        scopeType: Blockly.ContextMenuRegistry.ScopeType.WORKSPACE,
+        id: "pxtExportAllBlocks",
+        weight: WorkspaceContextWeight.ExportAllBlocks,
+    };
+    Blockly.ContextMenuRegistry.registry.register(exportAllBlocksOption);
+}
+
+function registerImport() {
+    const importOption: Blockly.ContextMenuRegistry.RegistryItem = {
+        displayText() {
+            return pxt.U.lf("Import")
+        },
+        preconditionFn(scope: Blockly.ContextMenuRegistry.Scope) {
+            const workspace = scope.workspace;
+
+            if (!window.blockPasteHandler || !workspace || workspace.options.readOnly) {
+                return "hidden";
+            }
+
+            return "enabled";
+        },
+        callback(scope: Blockly.ContextMenuRegistry.Scope) {
+            if (!scope.workspace) return;
+
+            window.blockPasteHandler(content => {
+                const blocklyElement = content.blocks !== undefined ? Blockly.utils.xml.textToDom(content.blocks) : null;
+                if (blocklyElement === null || blocklyElement.localName !== "xml") {
+                    throw new Error("INVALID_INPUT");
+                }
+                Blockly.Xml.domToWorkspace(blocklyElement, scope.workspace);
+            });
+        },
+        scopeType: Blockly.ContextMenuRegistry.ScopeType.WORKSPACE,
+        id: "pxtImport",
+        weight: WorkspaceContextWeight.Import,
+    };
+    Blockly.ContextMenuRegistry.registry.register(importOption);
 }
