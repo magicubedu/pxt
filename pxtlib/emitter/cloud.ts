@@ -322,7 +322,7 @@ namespace pxt.Cloud {
             return;
         }
 
-        if (!pxt.webConfig?.cdnUrl) {
+        if (pxt.webConfig?.isStatic || !pxt.webConfig?.cdnUrl) {
             region = "unknown";
             return;
         }
